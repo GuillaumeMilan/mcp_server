@@ -10,11 +10,26 @@ defmodule McpServer.MixProject do
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      description: "HTTP implementation of the MCP (Model Context Protocol)",
+      package: package(),
 
       # Docs
       name: "MCP SSE",
       docs: docs(),
       source_url: @source_url
+    ]
+  end
+
+
+  defp package do
+    [
+      maintainers: ["Guillaume Milan"],
+      licenses: ["X11"],
+      links: %{
+        "GitHub" => @source_url,
+        "MCP" => "https://modelcontextprotocol.io/introduction"
+      },
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
     ]
   end
 
