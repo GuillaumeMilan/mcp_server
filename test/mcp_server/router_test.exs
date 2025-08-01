@@ -109,17 +109,13 @@ defmodule McpServer.RouterTest do
     end
 
     test "raises error when required arguments missing" do
-      assert_raise ArgumentError,
-                   ~r/Missing required arguments for tool 'echo': \["message"\]/,
-                   fn ->
-                     TestRouter.tools_call("echo", %{})
-                   end
+      assert {:error, message} = TestRouter.tools_call("echo", %{})
+      assert message =~ "Missing required arguments for tool 'echo'"
     end
 
     test "raises error when multiple required arguments missing" do
-      assert_raise ArgumentError, ~r/Missing required arguments for tool 'calculate'/, fn ->
-        TestRouter.tools_call("calculate", %{"a" => 5})
-      end
+      assert {:error, message} = TestRouter.tools_call("calculate", %{"a" => 5})
+      assert message =~ "Missing required arguments for tool 'calculate'"
     end
   end
 
