@@ -1,0 +1,328 @@
+defmodule McpServer.Router do
+  @moduledoc """
+  A DSL to define a router for the Model Context Protocol (MCP) server.
+  """
+
+  defmacro __using__(_opts) do
+    quote do
+      import McpServer.Router, only: [tool: 5, tool: 6]
+      @before_compile McpServer.Router
+    end
+  end
+
+  @doc """
+  Defines a tool
+
+  ## Example
+      tool "echo", "Echoes back the input", EchoController, :echo,
+        title: "Echo",
+        hints: [:read_only, :non_destructive, :idempotent, :closed_world] do
+        input_field("message", "The message to echo", :string, required: true)
+        output_field("message", "The echoed message", :string)
+      end
+  """
+  defmacro tool(name, description, controller, function, do: block) do
+    define_tool(name, description, controller, function, [], block, __CALLER__)
+  end
+
+  defmacro tool(name, description, controller, function, opts, do: block) do
+    define_tool(name, description, controller, function, opts, block, __CALLER__)
+  end
+
+  defp define_tool(name, description, controller, function, opts, block, caller) do
+    statements = extract_tools_statements(block, %{name: name, caller: caller})
+    tools = Module.get_attribute(caller.module, :tools, %{})
+
+    if Map.has_key?(tools, name) do
+      raise CompileError,
+        description: "Tool \"#{name}\" is already defined",
+        file: caller.file,
+        line: caller.line
+    end
+
+    # Validate that the controller module is defined and exports the function
+    validate_controller_function(controller, function, name, caller)
+
+    tool = %{
+      name: name,
+      description: description,
+      controller: controller,
+      function: function,
+      statements: statements,
+      opts: opts
+    }
+
+    Module.put_attribute(caller.module, :tools, Map.put(tools, name, tool))
+  end
+
+  defp validate_controller_function(controller, function, tool_name, caller) do
+    # Convert the controller from AST to atom if needed
+    controller_module =
+      try do
+        {controller_module, _} = Code.eval_quoted(controller, [], caller)
+        controller_module
+      catch
+        _, _ ->
+          raise CompileError,
+            description:
+              "Invalid controller specification for tool \"#{tool_name}\": #{inspect(controller)}",
+            file: caller.file,
+            line: caller.line
+      end
+
+    # Check if the controller module exists
+    unless match?({:module, _}, Code.ensure_compiled(controller_module)) do
+      raise CompileError,
+        description:
+          "Controller module #{inspect(controller_module)} for tool \"#{tool_name}\" is not defined",
+        file: caller.file,
+        line: caller.line
+    end
+
+    # Check if the function exists with arity 1
+    unless function_exported?(controller_module, function, 1) do
+      raise CompileError,
+        description:
+          "Function #{inspect(controller_module)}.#{function}/1 for tool \"#{tool_name}\" is not exported",
+        file: caller.file,
+        line: caller.line
+    end
+  end
+
+  defp extract_tools_statements(quoted, ctx) do
+    do_extract_tools_statements(%{input_fields: %{}, output_fields: %{}}, quoted, ctx)
+  end
+
+  defp do_extract_tools_statements(statements, {:__block__, _, content}, ctx) do
+    content
+    |> Enum.reduce(statements, fn block, statements ->
+      do_extract_tools_statements(statements, block, ctx)
+    end)
+  end
+
+  defp do_extract_tools_statements(
+         statements,
+         {:input_field, _, args},
+         ctx
+       ) do
+    [name, description, type, opts] = parse_field_args(:input_field, args)
+
+    input_fields = Map.get(statements, :input_fields, %{})
+
+    if Map.has_key?(input_fields, name) do
+      raise %SyntaxError{
+        description:
+          "input_field #{Macro.to_string(name)} duplicated in tool #{Macro.to_string(ctx.name)}",
+        file: ctx.caller.file,
+        line: ctx.caller.line
+      }
+    end
+
+    new_input_fields =
+      Map.put(input_fields, name, %{description: description, type: type, opts: opts})
+
+    Map.put(statements, :input_fields, new_input_fields)
+  end
+
+  defp do_extract_tools_statements(
+         statements,
+         {:output_field, _, args},
+         ctx
+       ) do
+    [name, description, type, opts] = parse_field_args(:output_field, args)
+    output_fields = Map.get(statements, :output_fields, %{})
+
+    if Map.has_key?(output_fields, name) do
+      raise %SyntaxError{
+        description:
+          "output_field #{Macro.to_string(name)} duplicated in tool #{Macro.to_string(ctx.name)}",
+        file: ctx.caller.file,
+        line: ctx.caller.line
+      }
+    end
+
+    new_output_fields =
+      Map.put(output_fields, name, %{description: description, type: type, opts: opts})
+
+    Map.put(statements, :output_fields, new_output_fields)
+  end
+
+  defp do_extract_tools_statements(_statements, other, %{caller: caller}) do
+    raise %SyntaxError{
+      description: "Unexpected statement in tool definition: #{Macro.to_string(other)}",
+      file: caller.file,
+      line: caller.line
+    }
+  end
+
+  defp parse_field_args(function, args) do
+    case args do
+      [name, description, type, opts] ->
+        [name, description, type, opts]
+
+      [name, description, type] ->
+        [name, description, type, []]
+
+      args ->
+        reason = """
+        Did you mean:
+         - #{function}/3
+         - #{function}/4
+        """
+
+        arity = length(args)
+
+        raise %UndefinedFunctionError{
+          module: __MODULE__,
+          function: function,
+          arity: arity,
+          reason: reason
+        }
+    end
+  end
+
+  defmacro __before_compile__(env) do
+    tools =
+      Module.get_attribute(env.module, :tools, %{})
+      |> Map.values()
+
+    if tools == [] do
+      raise CompileError,
+        description: "No tools defined in #{inspect(env.module)}",
+        file: env.file,
+        line: env.line
+    end
+
+    default_tools_call_clause =
+      quote do
+        def tools_call(tool_name, _) do
+          raise ArgumentError, "Tool '#{tool_name}' not found"
+        end
+      end
+
+    tools_call_clauses =
+      tools
+      |> Enum.map(fn tool ->
+        quote do
+          def tools_call(unquote(tool.name), args) do
+            case McpServer.Router.check_tool_args(
+                   args,
+                   unquote(tool.name),
+                   unquote(Macro.escape(tool.statements.input_fields))
+                 ) do
+              {:error, e} ->
+                {:error, e}
+
+              :ok ->
+                unquote(tool.controller).unquote(tool.function)(args)
+            end
+          end
+        end
+      end)
+      |> Enum.concat([default_tools_call_clause])
+
+    quote do
+      def tools_debug do
+        @tools
+      end
+
+      def tools_list do
+        unquote(tools_list(Module.get_attribute(env.module, :tools, %{})))
+      end
+
+      unquote(tools_call_clauses)
+    end
+  end
+
+  def format_schema(fields) do
+    required_fields =
+      fields
+      |> Enum.filter(fn {_, %{opts: opts}} ->
+        Keyword.get(opts, :required, false)
+      end)
+      |> Enum.map(fn {name, _} -> name end)
+
+    properties =
+      fields
+      |> Map.new(fn {name, field} ->
+        {name, format_field(field)}
+      end)
+
+    %{
+      "type" => "object",
+      "properties" => properties,
+      "required" => required_fields
+    }
+  end
+
+  def format_field(field) do
+    enum = field.opts[:enum]
+
+    %{
+      "type" => "#{field.type}",
+      "description" => field.description,
+      "enum" => enum,
+      "default" => field.opts[:default]
+    }
+    |> Map.reject(fn {_, v} -> is_nil(v) end)
+  end
+
+  def check_tool_args(args, tool_name, input_fields) do
+    # Validate arguments
+    required_fields =
+      input_fields
+      |> Enum.filter(fn {_k, v} -> Keyword.get(v.opts, :required, false) end)
+      |> Enum.map(fn {k, _v} -> k end)
+
+    Enum.filter(required_fields, fn k -> !Map.has_key?(args, k) end)
+    |> case do
+      [] ->
+        :ok
+
+      missings ->
+        {:error, "Missing required arguments for tool '#{tool_name}': #{inspect(missings)}"}
+    end
+  end
+
+  defp tools_list(tools) do
+    tools
+    |> Enum.map(fn {name, tool} ->
+      quote do
+        hints = Keyword.get(unquote(tool.opts), :hints, [])
+        title = Keyword.get(unquote(tool.opts), :title, unquote(name))
+
+        input_schema =
+          McpServer.Router.format_schema(unquote(input_fields(tool.statements.input_fields)))
+
+        %{
+          "name" => unquote(name),
+          "description" => unquote(tool.description),
+          "inputSchema" => input_schema,
+          "annotations" => %{
+            "title" => title,
+            "readOnlyHint" => :read_only in hints,
+            "destructiveHint" => :non_destructive not in hints,
+            "idempotentHint" => :idempotent in hints,
+            "openWorldHint" => :closed_world not in hints
+          }
+        }
+      end
+    end)
+  end
+
+  defp input_fields(fields) do
+    fields
+    |> Enum.map(fn {name, field} ->
+      quote do
+        {
+          unquote(name),
+          %{
+            description: unquote(field.description),
+            type: unquote(field.type),
+            opts: unquote(field.opts)
+          }
+        }
+      end
+    end)
+  end
+end
