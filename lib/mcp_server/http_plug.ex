@@ -13,10 +13,41 @@ defmodule McpServer.HttpPlug do
   require Logger
   alias McpServer.JsonRpc
 
+  def init(opts) do
+    router =
+      Keyword.fetch(opts, :router)
+      |> case do
+        {:ok, router} -> router
+        :error -> raise ArgumentError, "Router must be provided in options"
+      end
+
+    server_info =
+      Keyword.get(opts, :server_info, %{})
+
+    %{router: router, server_info: server_info}
+  end
+
+  def call(conn, opts) when conn.method == "GET" do
+    # Not sure what to do for the moment
+    conn
+    |> setup_connection(opts)
+    |> send_chunked(200)
+    |> keep_alive()
+  end
+
+  def call(conn, opts) when conn.method == "POST" do
+    {:ok, body, conn} = Plug.Conn.read_body(conn, length: 1_000_000)
+
+    conn
+    |> setup_connection(opts)
+    |> handle_body(body)
+    |> halt()
+  end
+
   # Session management
   @session_id_header "mcp-session-id"
 
-  # Generate a cryptographically secure session ID
+  # Generate a session ID
   defp generate_session_id do
     :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
   end
@@ -34,10 +65,9 @@ defmodule McpServer.HttpPlug do
     put_resp_header(conn, @session_id_header, session_id)
   end
 
-  # Validate session ID format (visible ASCII characters 0x21 to 0x7E)
+  # Validate session ID format
   defp valid_session_id?(session_id) when is_binary(session_id) do
-    String.printable?(session_id) and
-      String.to_charlist(session_id) |> Enum.all?(&(&1 >= 0x21 and &1 <= 0x7E))
+    Base.decode64(session_id, padding: false) != :error
   end
 
   defp valid_session_id?(_), do: false
@@ -96,37 +126,6 @@ defmodule McpServer.HttpPlug do
 
         {:error, error_response}
     end
-  end
-
-  def init(opts) do
-    router =
-      Keyword.fetch(opts, :router)
-      |> case do
-        {:ok, router} -> router
-        :error -> raise ArgumentError, "Router must be provided in options"
-      end
-
-    server_info =
-      Keyword.get(opts, :server_info, %{})
-
-    %{router: router, server_info: server_info}
-  end
-
-  def call(conn, opts) when conn.method == "GET" do
-    # Not sure what to do for the moment
-    conn
-    |> setup_connection(opts)
-    |> send_chunked(200)
-    |> keep_alive()
-  end
-
-  def call(conn, opts) when conn.method == "POST" do
-    {:ok, body, conn} = Plug.Conn.read_body(conn, length: 1_000_000)
-
-    conn
-    |> setup_connection(opts)
-    |> handle_body(body)
-    |> halt()
   end
 
   defp setup_connection(conn, opts) do
