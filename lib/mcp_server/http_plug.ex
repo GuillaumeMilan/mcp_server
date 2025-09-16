@@ -343,24 +343,13 @@ defmodule McpServer.HttpPlug do
     end
   end
 
-  # TODO this is a temporary implementation for prompts
+    # TODO this is a temporary implementation for prompts
   def handle_request(conn, %JsonRpc.Request{method: "prompts/list", id: id}) do
+    router = conn.private.router
     session_id = conn.private.session_id
 
     result = %{
-      "prompts" => [
-        %{
-          "name" => "greeting_prompt",
-          "description" => "A friendly greeting prompt that welcomes users",
-          "arguments" => [
-            %{
-              "name" => "user_name",
-              "description" => "The name of the user to greet",
-              "required" => true
-            }
-          ]
-        }
-      ]
+      "prompts" => router.prompts_list()
     }
 
     response = JsonRpc.new_response(result, id)
@@ -373,6 +362,7 @@ defmodule McpServer.HttpPlug do
   end
 
   def handle_request(conn, %JsonRpc.Request{method: "completion/complete", params: params, id: id}) do
+    router = conn.private.router
     session_id = conn.private.session_id
     ref = Map.get(params, "ref")
     argument = Map.get(params, "argument")
@@ -381,7 +371,7 @@ defmodule McpServer.HttpPlug do
       "Completion request from session #{session_id} - Ref: #{inspect(ref)}, Argument: #{inspect(argument)}"
     )
 
-    case handle_completion(ref, argument) do
+    case handle_completion(router, ref, argument) do
       {:ok, result} ->
         response = JsonRpc.new_response(result, id)
         response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
@@ -407,6 +397,7 @@ defmodule McpServer.HttpPlug do
   end
 
   def handle_request(conn, %JsonRpc.Request{method: "prompts/get", params: params, id: id}) do
+    router = conn.private.router
     session_id = conn.private.session_id
     name = Map.get(params, "name")
     arguments = Map.get(params, "arguments", %{})
@@ -415,8 +406,15 @@ defmodule McpServer.HttpPlug do
       "Prompt get request from session #{session_id} - Name: #{inspect(name)}, Arguments: #{inspect(arguments)}"
     )
 
-    case handle_prompt_get(name, arguments) do
-      {:ok, result} ->
+    Process.put(:session_id, session_id)
+
+    case router.prompts_get(name, arguments) do
+      {:ok, messages} ->
+        result = %{
+          "description" => "Prompt response", # TODO: Could be enhanced to include prompt description
+          "messages" => messages
+        }
+
         response = JsonRpc.new_response(result, id)
         response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
@@ -437,6 +435,33 @@ defmodule McpServer.HttpPlug do
           |> Jason.encode!()
 
         send_resp(conn, 400, error_response)
+
+      messages when is_list(messages) ->
+        result = %{
+          "description" => "Prompt response",
+          "messages" => messages
+        }
+
+        response = JsonRpc.new_response(result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+
+        Logger.info("Prompt get successful for session #{session_id}: #{inspect(result)}")
+        send_resp(conn, 200, response_json)
+
+      _ ->
+        Logger.error("Unexpected response format from prompt get for session #{session_id}")
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32603,
+            "Internal error",
+            %{"message" => "Unexpected response format"},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 500, error_response)
     end
   end
 
@@ -465,27 +490,39 @@ defmodule McpServer.HttpPlug do
   end
 
   # Handle completion requests for different reference types
-  defp handle_completion(%{"type" => "ref/prompt", "name" => prompt_name}, argument) do
+  defp handle_completion(router, %{"type" => "ref/prompt", "name" => prompt_name}, argument) do
     Logger.debug("Handling completion for prompt: #{prompt_name}, argument: #{inspect(argument)}")
 
-    # Return dummy response for prompt completion
-    result = %{
-      "completion" => %{
-        "values" => ["Example", "Instance", "Other"],
-        "total" => 10,
-        "hasMore" => true
-      }
-    }
+    # Extract the argument name and prefix from the argument parameter
+    case argument do
+      %{"name" => arg_name, "value" => prefix} ->
+        try do
+          completion_result = router.prompts_complete(prompt_name, arg_name, prefix)
 
-    {:ok, result}
+          result = %{
+            "completion" => completion_result
+          }
+
+          {:ok, result}
+        catch
+          :error, %ArgumentError{message: message} ->
+            {:error, message}
+
+          _, error ->
+            {:error, "Completion failed: #{inspect(error)}"}
+        end
+
+      _ ->
+        {:error, "Invalid argument format for prompt completion"}
+    end
   end
 
-  defp handle_completion(%{"type" => "ref/resource", "uri" => resource_uri}, argument) do
+  defp handle_completion(_router, %{"type" => "ref/resource", "uri" => resource_uri}, argument) do
     Logger.debug(
       "Handling completion for resource: #{resource_uri}, argument: #{inspect(argument)}"
     )
 
-    # Return dummy response for resource completion
+    # Return dummy response for resource completion - could be enhanced later
     result = %{
       "completion" => %{
         "values" => ["Example", "Instance", "Other"],
@@ -497,36 +534,8 @@ defmodule McpServer.HttpPlug do
     {:ok, result}
   end
 
-  defp handle_completion(ref, _argument) do
+  defp handle_completion(_router, ref, _argument) do
     Logger.warning("Unsupported completion reference type: #{inspect(ref)}")
     {:error, "Unsupported reference type"}
-  end
-
-  # Handle prompt get requests for different prompt names
-  defp handle_prompt_get("greeting_prompt", arguments) do
-    user_name = Map.get(arguments, "user_name", "Guest")
-
-    Logger.debug("Handling prompt get for greeting_prompt with user_name: #{inspect(user_name)}")
-
-    # Return dummy response for greeting prompt
-    result = %{
-      "description" => "A friendly greeting prompt that welcomes users",
-      "messages" => [
-        %{
-          "role" => "user",
-          "content" => %{
-            "type" => "text",
-            "text" => "Hello #{user_name}! Welcome to our MCP server. How can I assist you today?"
-          }
-        }
-      ]
-    }
-
-    {:ok, result}
-  end
-
-  defp handle_prompt_get(prompt_name, _arguments) do
-    Logger.warning("Unknown prompt name: #{inspect(prompt_name)}")
-    {:error, "Unknown prompt: #{prompt_name}"}
   end
 end
