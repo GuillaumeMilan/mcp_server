@@ -56,7 +56,11 @@ Add to your application supervision tree:
 
 ```elixir
 children = [
-  {Bandit, plug: MyApp.Router, port: 4000}
+  {Bandit, plug: {
+              McpServer.HttpPlug,
+              router: MyApp.Router,
+              server_info: %{name: "MyApp MCP Server", version: "1.0.0"}
+            }, port: 4000}
 ]
 
 opts = [strategy: :one_for_one, name: MyApp.Supervisor]

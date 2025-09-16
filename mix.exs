@@ -20,7 +20,6 @@ defmodule McpServer.MixProject do
     ]
   end
 
-
   defp package do
     [
       maintainers: ["Guillaume Milan"],
