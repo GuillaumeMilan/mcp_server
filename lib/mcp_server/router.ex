@@ -474,7 +474,7 @@ defmodule McpServer.Router do
 
     quote do
       def tools_debug do
-        @tools
+        unquote(Macro.escape(Module.get_attribute(env.module, :tools, %{})))
       end
 
       def tools_list do
@@ -482,7 +482,7 @@ defmodule McpServer.Router do
       end
 
       def prompts_debug do
-        @prompts
+        unquote(Macro.escape(Module.get_attribute(env.module, :prompts, %{})))
       end
 
       def prompts_list do

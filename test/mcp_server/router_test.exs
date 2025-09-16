@@ -439,4 +439,120 @@ defmodule McpServer.RouterTest do
       end
     end
   end
+
+
+  describe "empty router validation" do
+    test "raises error when no tools or prompts are defined" do
+      assert_raise CompileError, ~r/No tools or prompts defined/, fn ->
+        defmodule EmptyRouter do
+          use McpServer.Router
+          # No tools or prompts defined - should raise CompileError
+        end
+      end
+    end
+  end
+
+  describe "router with only tools (no prompts)" do
+    defmodule OnlyToolsController do
+      def echo(args) do
+        Map.get(args, "message", "default")
+      end
+    end
+
+    defmodule OnlyToolsRouter do
+      use McpServer.Router
+
+      tool "echo", "Echoes back the input", OnlyToolsController, :echo do
+        input_field("message", "The message to echo", :string, required: true)
+        output_field("response", "The echoed message", :string)
+      end
+    end
+
+    test "compiles successfully with only tools defined" do
+      # If this test runs, it means the module compiled successfully
+      assert OnlyToolsRouter.tools_list() |> length() == 1
+    end
+
+    test "tools_call works correctly" do
+      result = OnlyToolsRouter.tools_call("echo", %{"message" => "Hello"})
+      assert result == "Hello"
+    end
+
+    test "prompts_get raises error for unknown prompt" do
+      assert_raise ArgumentError, "Prompt 'unknown' not found", fn ->
+        OnlyToolsRouter.prompts_get("unknown", %{})
+      end
+    end
+
+    test "prompts_complete raises error for unknown prompt" do
+      assert_raise ArgumentError, "Prompt 'unknown' not found", fn ->
+        OnlyToolsRouter.prompts_complete("unknown", "arg", "prefix")
+      end
+    end
+
+    test "prompts_list returns empty list" do
+      assert OnlyToolsRouter.prompts_list() == []
+    end
+  end
+
+  describe "router with only prompts (no tools)" do
+    defmodule OnlyPromptsController do
+      def get_greet_prompt(%{"user_name" => user_name}) do
+        [
+          %{
+            "role" => "user",
+            "content" => %{
+              "type" => "text",
+              "text" => "Hello #{user_name}!"
+            }
+          }
+        ]
+      end
+
+      def complete_greet_prompt("user_name", user_name_prefix) do
+        names = ["Alice", "Bob", "Charlie"]
+        filtered_names = Enum.filter(names, &String.starts_with?(&1, user_name_prefix))
+        %{
+          "values" => filtered_names,
+          "hasMore" => false
+        }
+      end
+    end
+
+    defmodule OnlyPromptsRouter do
+      use McpServer.Router
+
+      prompt "greet", "A friendly greeting prompt" do
+        argument("user_name", "The name of the user to greet", required: true)
+        get OnlyPromptsController, :get_greet_prompt
+        complete OnlyPromptsController, :complete_greet_prompt
+      end
+    end
+
+    test "compiles successfully with only prompts defined" do
+      # If this test runs, it means the module compiled successfully
+      assert OnlyPromptsRouter.prompts_list() |> length() == 1
+    end
+
+    test "prompts_get works correctly" do
+      result = OnlyPromptsRouter.prompts_get("greet", %{"user_name" => "Alice"})
+      assert is_list(result)
+      assert length(result) == 1
+    end
+
+    test "prompts_complete works correctly" do
+      result = OnlyPromptsRouter.prompts_complete("greet", "user_name", "A")
+      assert result["values"] == ["Alice"]
+    end
+
+    test "tools_call raises error for unknown tool" do
+      assert_raise ArgumentError, "Tool 'unknown' not found", fn ->
+        OnlyPromptsRouter.tools_call("unknown", %{})
+      end
+    end
+
+    test "tools_list returns empty list" do
+      assert OnlyPromptsRouter.tools_list() == []
+    end
+  end
 end
