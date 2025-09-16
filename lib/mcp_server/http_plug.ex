@@ -67,7 +67,7 @@ defmodule McpServer.HttpPlug do
 
   # Validate session ID format
   defp valid_session_id?(session_id) when is_binary(session_id) do
-    Base.decode64(session_id, padding: false) != :error
+    Base.url_decode64(session_id, padding: false) != :error
   end
 
   defp valid_session_id?(_), do: false
@@ -204,6 +204,7 @@ defmodule McpServer.HttpPlug do
 
     result = %{
       "capabilities" => %{
+        "completions" => %{},
         "logging" => %{},
         "prompts" => %{"listChanged" => true},
         "resources" => %{"listChanged" => true, "subscribe" => true},
@@ -238,7 +239,7 @@ defmodule McpServer.HttpPlug do
     level = Map.get(params, "level")
     session_id = conn.private.session_id
 
-    case set_logger_level(level) do
+    case set_logger_level(level, session_id) do
       :ok ->
         Logger.info("Logger level set to: #{level} for session: #{session_id}")
 
@@ -371,6 +372,38 @@ defmodule McpServer.HttpPlug do
     send_resp(conn, 200, response_json)
   end
 
+  def handle_request(conn, %JsonRpc.Request{method: "completion/complete", params: params, id: id}) do
+    session_id = conn.private.session_id
+    ref = Map.get(params, "ref")
+    argument = Map.get(params, "argument")
+
+    Logger.info("Completion request from session #{session_id} - Ref: #{inspect(ref)}, Argument: #{inspect(argument)}")
+
+    case handle_completion(ref, argument) do
+      {:ok, result} ->
+        response = JsonRpc.new_response(result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+
+        Logger.info("Completion successful for session #{session_id}: #{inspect(result)}")
+        send_resp(conn, 200, response_json)
+
+      {:error, reason} ->
+        Logger.error("Completion failed for session #{session_id}: #{reason}")
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32602,
+            "Invalid params",
+            %{"message" => reason},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 400, error_response)
+    end
+  end
+
   def handle_request(conn, %JsonRpc.Request{method: method}) do
     session_id = conn.private.session_id
     Logger.warning("Unhandled method: #{inspect(method)} from session: #{inspect(session_id)}")
@@ -383,9 +416,51 @@ defmodule McpServer.HttpPlug do
     send_resp(conn, 501, error_response)
   end
 
-  defp set_logger_level(level) do
+  defp set_logger_level(level, session_id) do
     # TODO validate level and configure the logging session for the specific session
     Logger.info("Setting logger level to: #{inspect(level)}")
-    :ok
+
+    if level in ["debug", "info", "notice", "warn", "error", "critical", "alert", "emergency"] do
+      :ets.insert(McpServer.Session, {{session_id, :log_level}, level})
+      :ok
+    else
+      {:error, "Invalid logging level"}
+    end
+  end
+
+  # Handle completion requests for different reference types
+  defp handle_completion(%{"type" => "ref/prompt", "name" => prompt_name}, argument) do
+    Logger.debug("Handling completion for prompt: #{prompt_name}, argument: #{inspect(argument)}")
+
+    # Return dummy response for prompt completion
+    result = %{
+      "completion" => %{
+        "values" => ["Example", "Instance", "Other"],
+        "total" => 10,
+        "hasMore" => true
+      }
+    }
+
+    {:ok, result}
+  end
+
+  defp handle_completion(%{"type" => "ref/resource", "uri" => resource_uri}, argument) do
+    Logger.debug("Handling completion for resource: #{resource_uri}, argument: #{inspect(argument)}")
+
+    # Return dummy response for resource completion
+    result = %{
+      "completion" => %{
+        "values" => ["Example", "Instance", "Other"],
+        "total" => 10,
+        "hasMore" => true
+      }
+    }
+
+    {:ok, result}
+  end
+
+  defp handle_completion(ref, _argument) do
+    Logger.warning("Unsupported completion reference type: #{inspect(ref)}")
+    {:error, "Unsupported reference type"}
   end
 end
