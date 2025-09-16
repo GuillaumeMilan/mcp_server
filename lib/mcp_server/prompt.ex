@@ -41,7 +41,8 @@ defmodule McpServer.Prompt do
       #     }
       #   }
   """
-  def message(role, type, content) when is_binary(role) and is_binary(type) and is_binary(content) do
+  def message(role, type, content)
+      when is_binary(role) and is_binary(type) and is_binary(content) do
     %{
       "role" => role,
       "content" => %{

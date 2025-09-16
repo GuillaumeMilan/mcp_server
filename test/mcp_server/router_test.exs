@@ -22,8 +22,16 @@ defmodule McpServer.RouterTest do
     # Prompt controller functions
     def get_greet_prompt(%{"user_name" => user_name}) do
       [
-        message("user", "text", "Hello #{user_name}! Welcome to our MCP server. How can I assist you today?"),
-        message("assistant", "text", "I'm here to help you with any questions or tasks you might have.")
+        message(
+          "user",
+          "text",
+          "Hello #{user_name}! Welcome to our MCP server. How can I assist you today?"
+        ),
+        message(
+          "assistant",
+          "text",
+          "I'm here to help you with any questions or tasks you might have."
+        )
       ]
     end
 
@@ -71,14 +79,14 @@ defmodule McpServer.RouterTest do
 
     prompt "greet", "A friendly greeting prompt that welcomes users" do
       argument("user_name", "The name of the user to greet", required: true)
-      get TestController, :get_greet_prompt
-      complete TestController, :complete_greet_prompt
+      get(TestController, :get_greet_prompt)
+      complete(TestController, :complete_greet_prompt)
     end
 
     prompt "system", "System configuration prompt" do
       argument("mode", "The system mode", required: false)
-      get TestController, :get_system_prompt
-      complete TestController, :complete_system_prompt
+      get(TestController, :get_system_prompt)
+      complete(TestController, :complete_system_prompt)
     end
   end
 
@@ -244,31 +252,31 @@ defmodule McpServer.RouterTest do
       msg = message("user", "text", "Hello world!")
 
       assert msg == %{
-        "role" => "user",
-        "content" => %{
-          "type" => "text",
-          "text" => "Hello world!"
-        }
-      }
+               "role" => "user",
+               "content" => %{
+                 "type" => "text",
+                 "text" => "Hello world!"
+               }
+             }
     end
 
     test "completion/2 creates proper completion structure with defaults" do
       comp = completion(["Alice", "Bob"], [])
 
       assert comp == %{
-        "values" => ["Alice", "Bob"],
-        "hasMore" => false
-      }
+               "values" => ["Alice", "Bob"],
+               "hasMore" => false
+             }
     end
 
     test "completion/2 creates proper completion structure with options" do
       comp = completion(["Alice", "Bob"], total: 10, has_more: true)
 
       assert comp == %{
-        "values" => ["Alice", "Bob"],
-        "total" => 10,
-        "hasMore" => true
-      }
+               "values" => ["Alice", "Bob"],
+               "total" => 10,
+               "hasMore" => true
+             }
     end
   end
 
@@ -367,14 +375,14 @@ defmodule McpServer.RouterTest do
 
           prompt "duplicate", "First prompt" do
             argument("param", "A parameter", required: true)
-            get TestController, :get_test
-            complete TestController, :complete_test
+            get(TestController, :get_test)
+            complete(TestController, :complete_test)
           end
 
           prompt "duplicate", "Second prompt" do
             argument("param", "A parameter", required: true)
-            get TestController, :get_test
-            complete TestController, :complete_test
+            get(TestController, :get_test)
+            complete(TestController, :complete_test)
           end
         end
       end
@@ -394,8 +402,8 @@ defmodule McpServer.RouterTest do
           prompt "test", "Test prompt" do
             argument("param", "First param", required: true)
             argument("param", "Second param", required: true)
-            get TestController, :get_test
-            complete TestController, :complete_test
+            get(TestController, :get_test)
+            complete(TestController, :complete_test)
           end
         end
       end
@@ -413,8 +421,8 @@ defmodule McpServer.RouterTest do
 
           prompt "test", "Test prompt" do
             argument("param", "A param", required: true)
-            get TestController, :nonexistent_get
-            complete TestController, :complete_test
+            get(TestController, :nonexistent_get)
+            complete(TestController, :complete_test)
           end
         end
       end
@@ -432,14 +440,13 @@ defmodule McpServer.RouterTest do
 
           prompt "test", "Test prompt" do
             argument("param", "A param", required: true)
-            get TestController, :get_test
-            complete TestController, :nonexistent_complete
+            get(TestController, :get_test)
+            complete(TestController, :nonexistent_complete)
           end
         end
       end
     end
   end
-
 
   describe "empty router validation" do
     test "raises error when no tools or prompts are defined" do
@@ -512,6 +519,7 @@ defmodule McpServer.RouterTest do
       def complete_greet_prompt("user_name", user_name_prefix) do
         names = ["Alice", "Bob", "Charlie"]
         filtered_names = Enum.filter(names, &String.starts_with?(&1, user_name_prefix))
+
         %{
           "values" => filtered_names,
           "hasMore" => false
@@ -524,8 +532,8 @@ defmodule McpServer.RouterTest do
 
       prompt "greet", "A friendly greeting prompt" do
         argument("user_name", "The name of the user to greet", required: true)
-        get OnlyPromptsController, :get_greet_prompt
-        complete OnlyPromptsController, :complete_greet_prompt
+        get(OnlyPromptsController, :get_greet_prompt)
+        complete(OnlyPromptsController, :complete_greet_prompt)
       end
     end
 

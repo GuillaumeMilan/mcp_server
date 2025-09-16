@@ -441,7 +441,9 @@ defmodule McpServer.Router do
                 {:error, e}
 
               :ok ->
-                unquote(prompt.statements.get_controller).unquote(prompt.statements.get_function)(args)
+                unquote(prompt.statements.get_controller).unquote(prompt.statements.get_function)(
+                  args
+                )
             end
           end
         end
@@ -462,11 +464,15 @@ defmodule McpServer.Router do
           def prompts_complete(unquote(prompt.name), argument_name, prefix) do
             # Validate that the argument exists for this prompt
             arguments = unquote(Macro.escape(prompt.statements.arguments))
+
             unless Map.has_key?(arguments, argument_name) do
-              raise ArgumentError, "Argument '#{argument_name}' not found for prompt '#{unquote(prompt.name)}'"
+              raise ArgumentError,
+                    "Argument '#{argument_name}' not found for prompt '#{unquote(prompt.name)}'"
             end
 
-            unquote(prompt.statements.complete_controller).unquote(prompt.statements.complete_function)(argument_name, prefix)
+            unquote(prompt.statements.complete_controller).unquote(
+              prompt.statements.complete_function
+            )(argument_name, prefix)
           end
         end
       end)

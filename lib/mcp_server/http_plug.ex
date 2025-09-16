@@ -343,7 +343,7 @@ defmodule McpServer.HttpPlug do
     end
   end
 
-    # TODO this is a temporary implementation for prompts
+  # TODO this is a temporary implementation for prompts
   def handle_request(conn, %JsonRpc.Request{method: "prompts/list", id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
@@ -411,7 +411,8 @@ defmodule McpServer.HttpPlug do
     case router.prompts_get(name, arguments) do
       {:ok, messages} ->
         result = %{
-          "description" => "Prompt response", # TODO: Could be enhanced to include prompt description
+          # TODO: Could be enhanced to include prompt description
+          "description" => "Prompt response",
           "messages" => messages
         }
 
