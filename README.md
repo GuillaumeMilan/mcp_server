@@ -23,7 +23,7 @@ Create a module that uses `McpServer.Router` and defines your tools. Example:
 ```elixir
 defmodule MyAppMcp.MyController do
   def echo(args), do: Map.get(args, "message", "default")
-  def greet(args), do: "Hello, #{Map.get(args, "name", "World")}",
+  def greet(args), do: "Hello, #{Map.get(args, "name", "World")}, you are connected with the session #{Process.get(:session_id)}!"
   def calculate(args), do: Map.get(args, "a", 0) + Map.get(args, "b", 0)
 end
 

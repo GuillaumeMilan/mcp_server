@@ -293,6 +293,8 @@ defmodule McpServer.HttpPlug do
       "Tool call request from session #{session_id} - Name: #{inspect(tool_name)}, Arguments: #{inspect(arguments)}"
     )
 
+    Process.put(:session_id, session_id)
+
     router.tools_call(tool_name, arguments)
     |> case do
       {:ok, content} ->
