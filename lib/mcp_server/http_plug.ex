@@ -377,7 +377,9 @@ defmodule McpServer.HttpPlug do
     ref = Map.get(params, "ref")
     argument = Map.get(params, "argument")
 
-    Logger.info("Completion request from session #{session_id} - Ref: #{inspect(ref)}, Argument: #{inspect(argument)}")
+    Logger.info(
+      "Completion request from session #{session_id} - Ref: #{inspect(ref)}, Argument: #{inspect(argument)}"
+    )
 
     case handle_completion(ref, argument) do
       {:ok, result} ->
@@ -389,6 +391,40 @@ defmodule McpServer.HttpPlug do
 
       {:error, reason} ->
         Logger.error("Completion failed for session #{session_id}: #{reason}")
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32602,
+            "Invalid params",
+            %{"message" => reason},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 400, error_response)
+    end
+  end
+
+  def handle_request(conn, %JsonRpc.Request{method: "prompts/get", params: params, id: id}) do
+    session_id = conn.private.session_id
+    name = Map.get(params, "name")
+    arguments = Map.get(params, "arguments", %{})
+
+    Logger.info(
+      "Prompt get request from session #{session_id} - Name: #{inspect(name)}, Arguments: #{inspect(arguments)}"
+    )
+
+    case handle_prompt_get(name, arguments) do
+      {:ok, result} ->
+        response = JsonRpc.new_response(result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+
+        Logger.info("Prompt get successful for session #{session_id}: #{inspect(result)}")
+        send_resp(conn, 200, response_json)
+
+      {:error, reason} ->
+        Logger.error("Prompt get failed for session #{session_id}: #{reason}")
 
         error_response =
           JsonRpc.new_error_response(
@@ -445,7 +481,9 @@ defmodule McpServer.HttpPlug do
   end
 
   defp handle_completion(%{"type" => "ref/resource", "uri" => resource_uri}, argument) do
-    Logger.debug("Handling completion for resource: #{resource_uri}, argument: #{inspect(argument)}")
+    Logger.debug(
+      "Handling completion for resource: #{resource_uri}, argument: #{inspect(argument)}"
+    )
 
     # Return dummy response for resource completion
     result = %{
@@ -462,5 +500,33 @@ defmodule McpServer.HttpPlug do
   defp handle_completion(ref, _argument) do
     Logger.warning("Unsupported completion reference type: #{inspect(ref)}")
     {:error, "Unsupported reference type"}
+  end
+
+  # Handle prompt get requests for different prompt names
+  defp handle_prompt_get("greeting_prompt", arguments) do
+    user_name = Map.get(arguments, "user_name", "Guest")
+
+    Logger.debug("Handling prompt get for greeting_prompt with user_name: #{inspect(user_name)}")
+
+    # Return dummy response for greeting prompt
+    result = %{
+      "description" => "A friendly greeting prompt that welcomes users",
+      "messages" => [
+        %{
+          "role" => "user",
+          "content" => %{
+            "type" => "text",
+            "text" => "Hello #{user_name}! Welcome to our MCP server. How can I assist you today?"
+          }
+        }
+      ]
+    }
+
+    {:ok, result}
+  end
+
+  defp handle_prompt_get(prompt_name, _arguments) do
+    Logger.warning("Unknown prompt name: #{inspect(prompt_name)}")
+    {:error, "Unknown prompt: #{prompt_name}"}
   end
 end
