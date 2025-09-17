@@ -27,12 +27,10 @@ defmodule McpServer.HttpPlug do
     %{router: router, server_info: server_info}
   end
 
-  def call(conn, opts) when conn.method == "GET" do
-    # Not sure what to do for the moment
+  def call(conn, _) when conn.method == "GET" do
+    # We do not support SSE
     conn
-    |> setup_connection(opts)
-    |> send_chunked(200)
-    |> keep_alive()
+    |> send_resp(405, "SSE not supported. Use POST.")
   end
 
   def call(conn, opts) when conn.method == "POST" do
@@ -137,15 +135,7 @@ defmodule McpServer.HttpPlug do
     |> put_private(:session_id, session_id)
     |> put_resp_header("cache-control", "no-cache")
     |> put_resp_header("connection", "keep-alive")
-    |> put_resp_header("content-type", "text/event-stream; charset=utf-8")
-  end
-
-  defp keep_alive(conn) do
-    receive do
-      :ok -> conn
-    after
-      120_000 -> conn
-    end
+    |> put_resp_header("content-type", "application/json; charset=utf-8")
   end
 
   def handle_body(conn, body) do
@@ -177,8 +167,6 @@ defmodule McpServer.HttpPlug do
 
           send_resp(conn, 400, error_response)
       end
-
-      handle_request(conn, request)
     else
       {:error, reason} ->
         session_id = conn.private.session_id
@@ -207,7 +195,7 @@ defmodule McpServer.HttpPlug do
         "completions" => %{},
         "logging" => %{},
         "prompts" => %{"listChanged" => true},
-        "resources" => %{"listChanged" => true, "subscribe" => true},
+        "resources" => %{"listChanged" => true},
         "tools" => %{"listChanged" => true}
       },
       # "instructions" => "Optional instructions for the client",
