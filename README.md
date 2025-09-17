@@ -79,13 +79,15 @@ end
 
 Add to your application supervision tree:
 
+Make sure to respect the recommended [security options for MCP servers](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#security-warning)
+
 ```elixir
 children = [
   {Bandit, plug: {
               McpServer.HttpPlug,
               router: MyApp.Router,
               server_info: %{name: "MyApp MCP Server", version: "1.0.0"}
-            }, port: 4000}
+            }, port: 4000, ip: {127, 0, 0, 1}}
 ]
 
 opts = [strategy: :one_for_one, name: MyApp.Supervisor]
