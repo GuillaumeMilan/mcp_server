@@ -71,6 +71,12 @@ defmodule McpServer.RouterTest do
       }
     end
 
+    def complete_user("id", prefix) do
+      ids = ["42", "43", "100"]
+      filtered = Enum.filter(ids, &String.starts_with?(&1, prefix))
+      completion(filtered, total: 100, has_more: false)
+    end
+
     def read_static(_opts) do
       %{
         "contents" => [
@@ -120,13 +126,20 @@ defmodule McpServer.RouterTest do
     end
 
     # Define resources
-    resource("user", "User resource", TestResourceController, :read_user,
-      uri: "https://example.com/users/{id}"
-    )
+    resource "user", "https://example.com/users/{id}" do
+      description("User resource")
+      mimeType("application/json")
+      title("User title")
+      read(TestResourceController, :read_user)
+      complete(TestResourceController, :complete_user)
+    end
 
-    resource("static", "Static resource", TestResourceController, :read_static,
-      uri: "https://example.com/static"
-    )
+    resource "static", "https://example.com/static" do
+      description("Static resource")
+      mimeType("text/plain")
+      title("Static content")
+      read(TestResourceController, :read_static)
+    end
   end
 
   describe "tools_list/0" do
@@ -404,13 +417,25 @@ defmodule McpServer.RouterTest do
     test "resources_list returns defined resources" do
       static_resources = TestRouter.list_resource()
       static_names = Enum.map(static_resources, & &1["name"])
+      static_titles = Enum.map(static_resources, & &1["title"])
+      static_descriptions = Enum.map(static_resources, & &1["description"])
+      static_mime_types = Enum.map(static_resources, & &1["mimeType"])
 
       assert "static" in static_names
+      assert "Static content" in static_titles
+      assert "Static resource" in static_descriptions
+      assert "text/plain" in static_mime_types
 
       template_resources = TestRouter.list_templates_resource()
       template_names = Enum.map(template_resources, & &1["name"])
+      templates_titles = Enum.map(template_resources, & &1["title"])
+      templates_descriptions = Enum.map(template_resources, & &1["description"])
+      templates_mime_types = Enum.map(template_resources, & &1["mimeType"])
 
       assert "user" in template_names
+      assert "User title" in templates_titles
+      assert "User resource" in templates_descriptions
+      assert "application/json" in templates_mime_types
     end
 
     test "resources_read delegates to controller and returns contents" do

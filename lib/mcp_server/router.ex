@@ -5,7 +5,7 @@ defmodule McpServer.Router do
 
   defmacro __using__(_opts) do
     quote do
-      import McpServer.Router, only: [tool: 5, tool: 6, prompt: 3, resource: 5]
+      import McpServer.Router, only: [tool: 5, tool: 6, prompt: 3, resource: 2, resource: 3]
       @before_compile McpServer.Router
     end
   end
@@ -44,19 +44,23 @@ defmodule McpServer.Router do
   end
 
   @doc """
-  Defines a resource
+  Defines a resource with a URI and an optional block to describe metadata and handlers.
 
   ## Example
-      resource "users", "List of users", MyApp.ResourceController, :read_user, uri: "https://example.com/users/{id}" do
-        # optional block for future statements
+      resource "users", "https://example.com/users/{id}" do
+        description "List of users"
+        mimeType "application/json"
+        title "User resource"
+        read MyApp.ResourceController, :read_user
+        complete MyApp.ResourceController, :complete_user
       end
   """
-  defmacro resource(name, description, controller, function, do: block) do
-    define_resource(name, description, controller, function, [], block, __CALLER__)
+  defmacro resource(name, uri, do: block) do
+    define_resource(name, uri, block, __CALLER__)
   end
 
-  defmacro resource(name, description, controller, function, opts) do
-    define_resource(name, description, controller, function, opts, nil, __CALLER__)
+  defmacro resource(name, uri) do
+    define_resource(name, uri, nil, __CALLER__)
   end
 
   defp define_tool(name, description, controller, function, opts, block, caller) do
@@ -108,7 +112,7 @@ defmodule McpServer.Router do
     Module.put_attribute(caller.module, :prompts, Map.put(prompts, name, prompt))
   end
 
-  defp define_resource(name, description, controller, function, opts, _block, caller) do
+  defp define_resource(name, uri_quoted, block, caller) do
     resources = Module.get_attribute(caller.module, :resources, %{})
 
     if Map.has_key?(resources, name) do
@@ -118,18 +122,195 @@ defmodule McpServer.Router do
         line: caller.line
     end
 
-    # Validate controller and function exist (read function should have arity 1)
-    validate_controller_function(controller, function, name, caller)
+    statements =
+      case block do
+        nil ->
+          %{
+            description: nil,
+            mimeType: nil,
+            title: nil,
+            read_controller: nil,
+            read_function: nil,
+            complete_controller: nil,
+            complete_function: nil
+          }
+
+        _ ->
+          extract_resource_statements(block, %{name: name, caller: caller})
+      end
+
+    # Evaluate URI now (must be a binary)
+    uri =
+      try do
+        {v, _} = Code.eval_quoted(uri_quoted, [], caller)
+        v
+      catch
+        _, _ ->
+          raise CompileError,
+            description: "Invalid URI for resource \"#{name}\": #{inspect(uri_quoted)}",
+            file: caller.file,
+            line: caller.line
+      end
+
+    unless is_binary(uri) do
+      raise CompileError,
+        description: "URI for resource \"#{name}\" must be a string",
+        file: caller.file,
+        line: caller.line
+    end
+
+    is_template = String.contains?(uri, "{")
+
+    # Read handler is required
+    unless statements.read_controller && statements.read_function do
+      raise CompileError,
+        description:
+          "Resource \"#{name}\" must define a read handler using `read Module, :function`",
+        file: caller.file,
+        line: caller.line
+    end
+
+    # Evaluate and validate read controller/function
+    read_controller_module =
+      try do
+        {m, _} = Code.eval_quoted(statements.read_controller, [], caller)
+        m
+      catch
+        _, _ ->
+          raise CompileError,
+            description:
+              "Invalid read controller for resource \"#{name}\": #{inspect(statements.read_controller)}",
+            file: caller.file,
+            line: caller.line
+      end
+
+    unless match?({:module, _}, Code.ensure_compiled(read_controller_module)) do
+      raise CompileError,
+        description:
+          "Read controller module #{inspect(read_controller_module)} for resource \"#{name}\" is not defined",
+        file: caller.file,
+        line: caller.line
+    end
+
+    unless function_exported?(read_controller_module, statements.read_function, 1) do
+      raise CompileError,
+        description:
+          "Function #{inspect(read_controller_module)}.#{statements.read_function}/1 for resource \"#{name}\" read is not exported",
+        file: caller.file,
+        line: caller.line
+    end
+
+    # If complete provided, ensure resource is a template and function arity is 2
+    if statements.complete_controller && statements.complete_function do
+      unless is_template do
+        raise CompileError,
+          description: "Complete handler provided for non-template resource \"#{name}\"",
+          file: caller.file,
+          line: caller.line
+      end
+
+      complete_controller_module =
+        try do
+          {m, _} = Code.eval_quoted(statements.complete_controller, [], caller)
+          m
+        catch
+          _, _ ->
+            raise CompileError,
+              description:
+                "Invalid complete controller for resource \"#{name}\": #{inspect(statements.complete_controller)}",
+              file: caller.file,
+              line: caller.line
+        end
+
+      unless match?({:module, _}, Code.ensure_compiled(complete_controller_module)) do
+        raise CompileError,
+          description:
+            "Complete controller module #{inspect(complete_controller_module)} for resource \"#{name}\" is not defined",
+          file: caller.file,
+          line: caller.line
+      end
+
+      unless function_exported?(complete_controller_module, statements.complete_function, 2) do
+        raise CompileError,
+          description:
+            "Function #{inspect(complete_controller_module)}.#{statements.complete_function}/2 for resource \"#{name}\" complete is not exported",
+          file: caller.file,
+          line: caller.line
+      end
+    end
 
     resource = %{
       name: name,
-      description: description,
-      controller: controller,
-      function: function,
-      opts: opts
+      uri: uri,
+      description: statements.description,
+      mimeType: statements.mimeType,
+      title: statements.title,
+      read_controller: read_controller_module,
+      read_function: statements.read_function,
+      complete_controller:
+        if(statements.complete_controller,
+          do: elem(Code.eval_quoted(statements.complete_controller, [], caller), 0),
+          else: nil
+        ),
+      complete_function: statements.complete_function
     }
 
     Module.put_attribute(caller.module, :resources, Map.put(resources, name, resource))
+  end
+
+  defp extract_resource_statements(quoted, ctx) do
+    do_extract_resource_statements(
+      %{
+        description: nil,
+        mimeType: nil,
+        title: nil,
+        read_controller: nil,
+        read_function: nil,
+        complete_controller: nil,
+        complete_function: nil
+      },
+      quoted,
+      ctx
+    )
+  end
+
+  defp do_extract_resource_statements(statements, {:__block__, _, content}, ctx) do
+    content
+    |> Enum.reduce(statements, fn block, statements ->
+      do_extract_resource_statements(statements, block, ctx)
+    end)
+  end
+
+  defp do_extract_resource_statements(statements, {:description, _, [desc]}, _ctx) do
+    Map.put(statements, :description, desc)
+  end
+
+  defp do_extract_resource_statements(statements, {:mimeType, _, [mt]}, _ctx) do
+    Map.put(statements, :mimeType, mt)
+  end
+
+  defp do_extract_resource_statements(statements, {:title, _, [t]}, _ctx) do
+    Map.put(statements, :title, t)
+  end
+
+  defp do_extract_resource_statements(statements, {:read, _, [controller, function]}, _ctx) do
+    statements
+    |> Map.put(:read_controller, controller)
+    |> Map.put(:read_function, function)
+  end
+
+  defp do_extract_resource_statements(statements, {:complete, _, [controller, function]}, _ctx) do
+    statements
+    |> Map.put(:complete_controller, controller)
+    |> Map.put(:complete_function, function)
+  end
+
+  defp do_extract_resource_statements(_statements, other, %{caller: caller}) do
+    raise %SyntaxError{
+      description: "Unexpected statement in resource definition: #{Macro.to_string(other)}",
+      file: caller.file,
+      line: caller.line
+    }
   end
 
   defp validate_controller_function(controller, function, tool_name, caller) do
@@ -538,7 +719,7 @@ defmodule McpServer.Router do
       |> Enum.map(fn resource ->
         quote do
           def resources_read(unquote(resource.name), opts) do
-            unquote(resource.controller).unquote(resource.function)(opts)
+            unquote(resource.read_controller).unquote(resource.read_function)(opts)
           end
         end
       end)
@@ -725,16 +906,32 @@ defmodule McpServer.Router do
   defp resources_list_static(resources) do
     resources
     |> Enum.filter(fn {_name, resource} ->
-      uri = Keyword.get(resource.opts, :uri)
-      is_binary(uri) and not String.contains?(uri, "{")
+      uri = resource.uri
+      is_binary(uri) and McpServer.URITemplate.new(uri).vars == []
     end)
     |> Enum.map(fn {name, resource} ->
       quote do
-        %{
+        base = %{
           "name" => unquote(name),
-          "description" => unquote(resource.description),
-          "uri" => Keyword.get(unquote(resource.opts), :uri)
+          "uri" => unquote(resource.uri)
         }
+
+        base =
+          if unquote(resource.description) != nil,
+            do: Map.put(base, "description", unquote(resource.description)),
+            else: base
+
+        base =
+          if unquote(resource.title) != nil,
+            do: Map.put(base, "title", unquote(resource.title)),
+            else: base
+
+        base =
+          if unquote(resource.mimeType) != nil,
+            do: Map.put(base, "mimeType", unquote(resource.mimeType)),
+            else: base
+
+        base
       end
     end)
   end
@@ -742,16 +939,32 @@ defmodule McpServer.Router do
   defp resources_list_templates(resources) do
     resources
     |> Enum.filter(fn {_name, resource} ->
-      uri = Keyword.get(resource.opts, :uri)
-      is_binary(uri) and String.contains?(uri, "{")
+      uri = resource.uri
+      is_binary(uri) and McpServer.URITemplate.new(uri).vars != []
     end)
     |> Enum.map(fn {name, resource} ->
       quote do
-        %{
+        base = %{
           "name" => unquote(name),
-          "description" => unquote(resource.description),
-          "uri" => Keyword.get(unquote(resource.opts), :uri)
+          "uri" => unquote(resource.uri)
         }
+
+        base =
+          if unquote(resource.description) != nil,
+            do: Map.put(base, "description", unquote(resource.description)),
+            else: base
+
+        base =
+          if unquote(resource.title) != nil,
+            do: Map.put(base, "title", unquote(resource.title)),
+            else: base
+
+        base =
+          if unquote(resource.mimeType) != nil,
+            do: Map.put(base, "mimeType", unquote(resource.mimeType)),
+            else: base
+
+        base
       end
     end)
   end

@@ -44,8 +44,12 @@ defmodule McpServer.URITemplate do
     # Extract a trailing query expression like `{?q,lang}` if present
     {path_template, query_vars} =
       case Regex.run(~r/\{\?([^}]+)\}\s*$/, template) do
-        nil -> {template, []}
-        [_, vars] -> {String.replace(template, "{" <> "?" <> vars <> "}", ""), String.split(vars, ",") |> Enum.map(&String.trim/1)}
+        nil ->
+          {template, []}
+
+        [_, vars] ->
+          {String.replace(template, "{" <> "?" <> vars <> "}", ""),
+           String.split(vars, ",") |> Enum.map(&String.trim/1)}
       end
 
     segments =
@@ -76,7 +80,9 @@ defmodule McpServer.URITemplate do
   # Brace expression that occupies the whole segment, possibly with a modifier
   defp parse_segment(seg) when is_binary(seg) do
     case Regex.run(~r/^\{([^}]+)\}$/, seg) do
-      nil -> {:lit, seg}
+      nil ->
+        {:lit, seg}
+
       [_, inner] ->
         # Check for prefix modifier name:length
         case String.split(inner, ":", parts: 2) do
@@ -86,7 +92,8 @@ defmodule McpServer.URITemplate do
               _ -> {:var, inner}
             end
 
-          [name] -> {:var, name}
+          [name] ->
+            {:var, name}
         end
     end
   end
@@ -128,22 +135,28 @@ defmodule McpServer.URITemplate do
           case Map.fetch(vars, name) do
             {:ok, v} when not is_nil(v) ->
               s = to_string(v)
+
               if String.length(s) >= n do
                 {:cont, {:ok, acc ++ [String.slice(s, 0, n)]}}
               else
                 {:halt, {:error, "variable #{name} shorter than prefix #{n}"}}
               end
 
-            _ -> {:halt, {:error, "missing variable: #{name}"}}
+            _ ->
+              {:halt, {:error, "missing variable: #{name}"}}
           end
 
         {:query, qvars}, {:ok, acc} ->
           case build_query(qvars, vars) do
-            {:ok, ""} -> {:cont, {:ok, acc}}
+            {:ok, ""} ->
+              {:cont, {:ok, acc}}
+
             {:ok, qs} ->
               new_acc =
                 case acc do
-                  [] -> ["?" <> qs]
+                  [] ->
+                    ["?" <> qs]
+
                   _ ->
                     {init, [last]} = Enum.split(acc, length(acc) - 1)
                     init ++ [last <> "?" <> qs]
@@ -151,7 +164,8 @@ defmodule McpServer.URITemplate do
 
               {:cont, {:ok, new_acc}}
 
-            {:error, _} = err -> {:halt, err}
+            {:error, _} = err ->
+              {:halt, err}
           end
       end)
 
@@ -160,10 +174,16 @@ defmodule McpServer.URITemplate do
         uri = parts |> Enum.join("/")
         # Ensure we don't output a stray slash before the query string
         uri = String.replace(uri, "/?", "?")
-        uri = if String.starts_with?(tpl.template, "/"), do: "/" <> String.trim_leading(uri, "/"), else: uri
+
+        uri =
+          if String.starts_with?(tpl.template, "/"),
+            do: "/" <> String.trim_leading(uri, "/"),
+            else: uri
+
         {:ok, uri}
 
-      {:error, _} = err -> err
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -200,12 +220,14 @@ defmodule McpServer.URITemplate do
               qs_map = parse_query(query)
               Map.merge(vars, Map.take(qs_map, qvars))
 
-            _ -> vars
+            _ ->
+              vars
           end
 
         {:ok, vars}
 
-      :nomatch -> :nomatch
+      :nomatch ->
+        :nomatch
     end
   end
 
@@ -264,11 +286,13 @@ defmodule McpServer.URITemplate do
       end)
       |> Enum.filter(& &1)
 
-    qs = pairs |> Enum.map(fn {k, v} -> URI.encode(k) <> "=" <> URI.encode(v) end) |> Enum.join("&")
+    qs =
+      pairs |> Enum.map(fn {k, v} -> URI.encode(k) <> "=" <> URI.encode(v) end) |> Enum.join("&")
+
     {:ok, qs}
   end
 
-  defp parse_query("") , do: %{}
+  defp parse_query(""), do: %{}
 
   defp parse_query(qs) when is_binary(qs) do
     qs

@@ -89,7 +89,13 @@ defmodule MyApp.Router do
   end
 
   # Define resources
-  resource "user", "User resource", MyApp.MyController, :read_user, uri: "https://example.com/users/{id}"
+  resource "user", "https://example.com/users/{id}" do
+    description "User resource"
+    mimeType "application/json"
+    title "User title"
+    read MyApp.MyController, :read_user
+    complete MyApp.MyController, :complete_user
+  end
 end
 ```
 

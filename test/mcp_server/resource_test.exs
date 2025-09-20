@@ -3,13 +3,14 @@ defmodule McpServer.ResourceTest do
   alias McpServer.Resource
 
   test "content/3 builds text content with provided fields" do
-    res = Resource.content(
-      "main.rs",
-      "file:///project/src/main.rs",
-      mimeType: "plain/text",
-      text: "<actual content of the file>...",
-      title: "Main file of the code base"
-    )
+    res =
+      Resource.content(
+        "main.rs",
+        "file:///project/src/main.rs",
+        mimeType: "plain/text",
+        text: "<actual content of the file>...",
+        title: "Main file of the code base"
+      )
 
     assert res["name"] == "main.rs"
     assert res["uri"] == "file:///project/src/main.rs"
@@ -21,7 +22,8 @@ defmodule McpServer.ResourceTest do
   test "content/3 encodes blob binary as base64" do
     blob = <<255, 216, 255>>
 
-    res = Resource.content("image.png", "file:///tmp/image.png", mimeType: "image/png", blob: blob)
+    res =
+      Resource.content("image.png", "file:///tmp/image.png", mimeType: "image/png", blob: blob)
 
     assert res["name"] == "image.png"
     assert res["uri"] == "file:///tmp/image.png"
