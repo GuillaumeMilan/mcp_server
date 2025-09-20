@@ -5,7 +5,7 @@ defmodule McpServer.Router do
 
   defmacro __using__(_opts) do
     quote do
-      import McpServer.Router, only: [tool: 5, tool: 6, prompt: 3]
+      import McpServer.Router, only: [tool: 5, tool: 6, prompt: 3, resource: 5]
       @before_compile McpServer.Router
     end
   end
@@ -41,6 +41,22 @@ defmodule McpServer.Router do
   """
   defmacro prompt(name, description, do: block) do
     define_prompt(name, description, block, __CALLER__)
+  end
+
+  @doc """
+  Defines a resource
+
+  ## Example
+      resource "users", "List of users", MyApp.ResourceController, :read_user, uri: "https://example.com/users/{id}" do
+        # optional block for future statements
+      end
+  """
+  defmacro resource(name, description, controller, function, do: block) do
+    define_resource(name, description, controller, function, [], block, __CALLER__)
+  end
+
+  defmacro resource(name, description, controller, function, opts) do
+    define_resource(name, description, controller, function, opts, nil, __CALLER__)
   end
 
   defp define_tool(name, description, controller, function, opts, block, caller) do
@@ -90,6 +106,30 @@ defmodule McpServer.Router do
     }
 
     Module.put_attribute(caller.module, :prompts, Map.put(prompts, name, prompt))
+  end
+
+  defp define_resource(name, description, controller, function, opts, _block, caller) do
+    resources = Module.get_attribute(caller.module, :resources, %{})
+
+    if Map.has_key?(resources, name) do
+      raise CompileError,
+        description: "Resource \"#{name}\" is already defined",
+        file: caller.file,
+        line: caller.line
+    end
+
+    # Validate controller and function exist (read function should have arity 1)
+    validate_controller_function(controller, function, name, caller)
+
+    resource = %{
+      name: name,
+      description: description,
+      controller: controller,
+      function: function,
+      opts: opts
+    }
+
+    Module.put_attribute(caller.module, :resources, Map.put(resources, name, resource))
   end
 
   defp validate_controller_function(controller, function, tool_name, caller) do
@@ -385,7 +425,11 @@ defmodule McpServer.Router do
       Module.get_attribute(env.module, :prompts, %{})
       |> Map.values()
 
-    if tools == [] and prompts == [] do
+    resources =
+      Module.get_attribute(env.module, :resources, %{})
+      |> Map.values()
+
+    if tools == [] and prompts == [] and resources == [] do
       raise CompileError,
         description: "No tools or prompts defined in #{inspect(env.module)}",
         file: env.file,
@@ -472,11 +516,54 @@ defmodule McpServer.Router do
 
             unquote(prompt.statements.complete_controller).unquote(
               prompt.statements.complete_function
-            )(argument_name, prefix)
+            )(
+              argument_name,
+              prefix
+            )
           end
         end
       end)
       |> Enum.concat([default_prompts_complete_clause])
+
+    # Resources
+    default_resources_read_clause =
+      quote do
+        def resources_read(resource_name, _opts) do
+          raise ArgumentError, "Resource '#{resource_name}' not found"
+        end
+      end
+
+    resources_read_clauses =
+      resources
+      |> Enum.map(fn resource ->
+        quote do
+          def resources_read(unquote(resource.name), opts) do
+            unquote(resource.controller).unquote(resource.function)(opts)
+          end
+        end
+      end)
+      |> Enum.concat([default_resources_read_clause])
+
+    resources_list_static_clause =
+      quote do
+        def list_resource do
+          unquote(resources_list_static(Module.get_attribute(env.module, :resources, %{})))
+        end
+      end
+
+    resources_list_templates_clause =
+      quote do
+        def list_templates_resource do
+          unquote(resources_list_templates(Module.get_attribute(env.module, :resources, %{})))
+          |> Enum.map(fn t ->
+            uri = Map.get(t, "uri")
+
+            t
+            |> Map.delete("uri")
+            |> Map.put("uriTemplate", uri)
+          end)
+        end
+      end
 
     quote do
       def tools_debug do
@@ -495,9 +582,19 @@ defmodule McpServer.Router do
         unquote(prompts_list(Module.get_attribute(env.module, :prompts, %{})))
       end
 
+      def resources_debug do
+        unquote(Macro.escape(Module.get_attribute(env.module, :resources, %{})))
+      end
+
+      unquote(resources_list_static_clause)
+      unquote(resources_list_templates_clause)
+
+      # resources_read clauses are generated below (including default)
+
       unquote(tools_call_clauses)
       unquote(prompts_get_clauses)
       unquote(prompts_complete_clauses)
+      unquote(resources_read_clauses)
     end
   end
 
@@ -620,6 +717,40 @@ defmodule McpServer.Router do
           "name" => unquote(name),
           "description" => unquote(prompt.description),
           "arguments" => arguments
+        }
+      end
+    end)
+  end
+
+  defp resources_list_static(resources) do
+    resources
+    |> Enum.filter(fn {_name, resource} ->
+      uri = Keyword.get(resource.opts, :uri)
+      is_binary(uri) and not String.contains?(uri, "{")
+    end)
+    |> Enum.map(fn {name, resource} ->
+      quote do
+        %{
+          "name" => unquote(name),
+          "description" => unquote(resource.description),
+          "uri" => Keyword.get(unquote(resource.opts), :uri)
+        }
+      end
+    end)
+  end
+
+  defp resources_list_templates(resources) do
+    resources
+    |> Enum.filter(fn {_name, resource} ->
+      uri = Keyword.get(resource.opts, :uri)
+      is_binary(uri) and String.contains?(uri, "{")
+    end)
+    |> Enum.map(fn {name, resource} ->
+      quote do
+        %{
+          "name" => unquote(name),
+          "description" => unquote(resource.description),
+          "uri" => Keyword.get(unquote(resource.opts), :uri)
         }
       end
     end)

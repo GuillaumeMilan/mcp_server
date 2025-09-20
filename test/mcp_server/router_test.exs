@@ -55,6 +55,37 @@ defmodule McpServer.RouterTest do
     end
   end
 
+  # Resource controller for testing
+  defmodule TestResourceController do
+    def read_user(%{"id" => id}) do
+      %{
+        "uri" => "https://example.com/users/#{id}",
+        "mimeType" => "application/json",
+        "contents" => [
+          %{
+            "uri" => "https://example.com/users/#{id}",
+            "mimeType" => "application/json",
+            "text" => "{\"id\": \"#{id}\", \"name\": \"User #{id}\"}"
+          }
+        ]
+      }
+    end
+
+    def read_static(_opts) do
+      %{
+        "uri" => "https://example.com/static",
+        "mimeType" => "text/plain",
+        "contents" => [
+          %{
+            "uri" => "https://example.com/static",
+            "mimeType" => "text/plain",
+            "text" => "static content"
+          }
+        ]
+      }
+    end
+  end
+
   # Test module that uses the router
   defmodule TestRouter do
     use McpServer.Router
@@ -88,6 +119,15 @@ defmodule McpServer.RouterTest do
       get(TestController, :get_system_prompt)
       complete(TestController, :complete_system_prompt)
     end
+
+    # Define resources
+    resource("user", "User resource", TestResourceController, :read_user,
+      uri: "https://example.com/users/{id}"
+    )
+
+    resource("static", "Static resource", TestResourceController, :read_static,
+      uri: "https://example.com/static"
+    )
   end
 
   describe "tools_list/0" do
@@ -357,6 +397,34 @@ defmodule McpServer.RouterTest do
     test "raises error when argument not found" do
       assert_raise ArgumentError, "Argument 'nonexistent' not found for prompt 'greet'", fn ->
         TestRouter.prompts_complete("greet", "nonexistent", "")
+      end
+    end
+  end
+
+  describe "resources_list/0 and resources_read/2" do
+    test "resources_list returns defined resources" do
+      static_resources = TestRouter.list_resource()
+      static_names = Enum.map(static_resources, & &1["name"])
+
+      assert "static" in static_names
+
+      template_resources = TestRouter.list_templates_resource()
+      template_names = Enum.map(template_resources, & &1["name"])
+
+      assert "user" in template_names
+    end
+
+    test "resources_read delegates to controller and returns contents" do
+      result = TestRouter.resources_read("user", %{"id" => "42"})
+
+      assert is_map(result)
+      assert result["uri"] =~ "users/42"
+      assert is_list(result["contents"])
+    end
+
+    test "resources_read raises for unknown resource" do
+      assert_raise ArgumentError, "Resource 'unknown' not found", fn ->
+        TestRouter.resources_read("unknown", %{})
       end
     end
   end

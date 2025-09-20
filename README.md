@@ -72,6 +72,9 @@ defmodule MyApp.Router do
     get MyApp.MyController, :get_greet_prompt
     complete MyApp.MyController, :complete_greet_prompt
   end
+
+  # Define resources
+  resource "user", "User resource", MyApp.ResourceController, :read_user, uri: "https://example.com/users/{id}"
 end
 ```
 
