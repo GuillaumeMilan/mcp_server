@@ -594,21 +594,38 @@ defmodule McpServer.HttpPlug do
     end
   end
 
-  defp handle_completion(_router, %{"type" => "ref/resource", "uri" => resource_uri}, argument) do
+  defp handle_completion(router, %{"type" => "ref/resource", "uri" => resource_uri}, argument) do
     Logger.debug(
       "Handling completion for resource: #{resource_uri}, argument: #{inspect(argument)}"
     )
 
-    # Return dummy response for resource completion - could be enhanced later
-    result = %{
-      "completion" => %{
-        "values" => ["Example", "Instance", "Other"],
-        "total" => 10,
-        "hasMore" => true
-      }
-    }
+    # Try to resolve resource name from templates and delegate to router.resources_complete
+    # The argument is expected to be %{"name" => arg_name, "value" => prefix}
+    case argument do
+      %{"name" => arg_name, "value" => prefix} ->
+        # Find resource by matching URI against templates
+        case find_matching_resource(router, resource_uri) do
+          {:ok, resource_name, _vars} ->
+            try do
+              completion_result = router.resources_complete(resource_name, arg_name, prefix)
 
-    {:ok, result}
+              result = %{"completion" => completion_result}
+              {:ok, result}
+            catch
+              :error, %ArgumentError{message: message} ->
+                {:error, message}
+
+              _, error ->
+                {:error, "Completion failed: #{inspect(error)}"}
+            end
+
+          :no_match ->
+            {:error, "Resource not found for completion"}
+        end
+
+      _ ->
+        {:error, "Invalid argument format for resource completion"}
+    end
   end
 
   defp handle_completion(_router, ref, _argument) do

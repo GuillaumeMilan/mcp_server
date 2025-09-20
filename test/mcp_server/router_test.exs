@@ -423,6 +423,14 @@ defmodule McpServer.RouterTest do
         TestRouter.resources_read("unknown", %{})
       end
     end
+
+    test "resources_complete delegates to controller complete function" do
+      result = TestRouter.resources_complete("user", "id", "4")
+
+      assert result["values"] == ["42", "43"] or result["values"] == ["42"]
+      assert result["total"] == 100
+      assert result["hasMore"] == false
+    end
   end
 
   describe "prompt macro validation" do

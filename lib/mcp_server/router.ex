@@ -11,6 +11,13 @@ defmodule McpServer.Router do
   end
 
   @doc """
+  Same as tool/6 but with no options provided such as title or hints.
+  """
+  defmacro tool(name, description, controller, function, do: block) do
+    define_tool(name, description, controller, function, [], block, __CALLER__)
+  end
+
+  @doc """
   Defines a tool
 
   ## Example
@@ -21,10 +28,6 @@ defmodule McpServer.Router do
         output_field("message", "The echoed message", :string)
       end
   """
-  defmacro tool(name, description, controller, function, do: block) do
-    define_tool(name, description, controller, function, [], block, __CALLER__)
-  end
-
   defmacro tool(name, description, controller, function, opts, do: block) do
     define_tool(name, description, controller, function, opts, block, __CALLER__)
   end
@@ -725,6 +728,28 @@ defmodule McpServer.Router do
       end)
       |> Enum.concat([default_resources_read_clause])
 
+    default_resources_complete_clause =
+      quote do
+        def resources_complete(resource_name, _argument_name, _prefix) do
+          raise ArgumentError, "Resource '#{resource_name}' not found"
+        end
+      end
+
+    resources_complete_clauses =
+      resources
+      |> Enum.filter(fn resource -> resource.complete_controller != nil end)
+      |> Enum.map(fn resource ->
+        quote do
+          def resources_complete(unquote(resource.name), argument_name, prefix) do
+            unquote(resource.complete_controller).unquote(resource.complete_function)(
+              argument_name,
+              prefix
+            )
+          end
+        end
+      end)
+      |> Enum.concat([default_resources_complete_clause])
+
     resources_list_static_clause =
       quote do
         def list_resource do
@@ -776,6 +801,7 @@ defmodule McpServer.Router do
       unquote(prompts_get_clauses)
       unquote(prompts_complete_clauses)
       unquote(resources_read_clauses)
+      unquote(resources_complete_clauses)
     end
   end
 

@@ -152,6 +152,7 @@ end
 Prompt controllers need two functions:
 
 1. **Get function** - Returns a list of messages:
+
 ```elixir
 def get_prompt_name(%{"arg_name" => value}) do
   [
@@ -163,6 +164,7 @@ end
 ```
 
 2. **Complete function** - Returns completion suggestions:
+
 ```elixir
 def complete_prompt_name("arg_name", prefix) do
   suggestions = ["option1", "option2", "option3"]
