@@ -109,9 +109,9 @@ defmodule McpServer.URITemplate do
       iex> McpServer.URITemplate.interpolate(tpl, %{id: 42, post_id: 7})
       {:ok, "/users/42/posts/7"}
 
-  iex> tpl = McpServer.URITemplate.new("/a/:x/b/{y}")
-  iex> McpServer.URITemplate.interpolate(tpl, %{"x" => "one"})
-  {:error, "missing variable: y"}
+      iex> tpl = McpServer.URITemplate.new("/a/:x/b/{y}")
+      iex> McpServer.URITemplate.interpolate(tpl, %{"x" => "one"})
+      {:error, "missing variable: y"}
   """
   @spec interpolate(t(), map()) :: {:ok, String.t()} | {:error, String.t()}
   def interpolate(%__MODULE__{} = tpl, vars) when is_map(vars) do
