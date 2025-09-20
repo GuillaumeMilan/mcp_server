@@ -10,7 +10,7 @@ McpServer is a DSL for defining Model Context Protocol (MCP) tools, prompts, and
 ```elixir
 def deps do
   [
-    {:mcp_server, "~> 0.2.0"},
+    {:mcp_server, "~> 0.3.0"},
     {:bandit, "~> 1.0"} # HTTP server
   ]
 end
