@@ -805,6 +805,8 @@ defmodule McpServer.Router do
     end
   end
 
+  @doc false
+  # TODO put in a dedicated module
   def format_schema(fields) do
     required_fields =
       fields
@@ -826,6 +828,8 @@ defmodule McpServer.Router do
     }
   end
 
+  @doc false
+  # TODO put in a dedicated module
   def format_field(field) do
     enum = field.opts[:enum]
 
@@ -838,6 +842,8 @@ defmodule McpServer.Router do
     |> Map.reject(fn {_, v} -> is_nil(v) end)
   end
 
+  @doc false
+  # TODO put in a dedicated module
   def check_tool_args(args, tool_name, input_fields) do
     # Validate arguments
     required_fields =
@@ -855,6 +861,8 @@ defmodule McpServer.Router do
     end
   end
 
+  @doc false
+  # TODO put in a dedicated module
   def check_prompt_args(args, prompt_name, arguments) do
     # Validate arguments
     required_arguments =
