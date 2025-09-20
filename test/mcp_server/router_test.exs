@@ -59,28 +59,27 @@ defmodule McpServer.RouterTest do
   defmodule TestResourceController do
     def read_user(%{"id" => id}) do
       %{
-        "uri" => "https://example.com/users/#{id}",
-        "mimeType" => "application/json",
         "contents" => [
-          %{
-            "uri" => "https://example.com/users/#{id}",
-            "mimeType" => "application/json",
-            "text" => "{\"id\": \"#{id}\", \"name\": \"User #{id}\"}"
-          }
+          McpServer.Resource.content(
+            "User #{id}",
+            "https://example.com/users/#{id}",
+            mimeType: "application/json",
+            text: "{\"id\": \"#{id}\", \"name\": \"User #{id}\"}",
+            title: "User title #{id}"
+          )
         ]
       }
     end
 
     def read_static(_opts) do
       %{
-        "uri" => "https://example.com/static",
-        "mimeType" => "text/plain",
         "contents" => [
-          %{
-            "uri" => "https://example.com/static",
-            "mimeType" => "text/plain",
-            "text" => "static content"
-          }
+          McpServer.Resource.content(
+            "static.txt",
+            "https://example.com/static",
+            mimeType: "text/plain",
+            text: "static content"
+          )
         ]
       }
     end
@@ -418,8 +417,14 @@ defmodule McpServer.RouterTest do
       result = TestRouter.resources_read("user", %{"id" => "42"})
 
       assert is_map(result)
-      assert result["uri"] =~ "users/42"
       assert is_list(result["contents"])
+      assert length(result["contents"]) == 1
+      content = hd(result["contents"])
+      assert content["uri"] == "https://example.com/users/42"
+      assert content["mimeType"] == "application/json"
+      assert content["text"] == "{\"id\": \"42\", \"name\": \"User 42\"}"
+      assert content["title"] == "User title 42"
+      assert content["name"] == "User 42"
     end
 
     test "resources_read raises for unknown resource" do

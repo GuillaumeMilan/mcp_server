@@ -21,7 +21,7 @@ end
 Create a module that uses `McpServer.Router` and defines your tools and prompts. Example:
 
 ```elixir
-defmodule MyAppMcp.MyController do
+defmodule MyApp.MyController do
   import McpServer.Prompt, only: [message: 3, completion: 2]
   
   # Tool functions
@@ -41,6 +41,21 @@ defmodule MyAppMcp.MyController do
     names = ["Alice", "Bob", "Charlie", "David"]
     filtered_names = Enum.filter(names, &String.starts_with?(&1, user_name_prefix))
     completion(filtered_names, total: 100, has_more: true)
+  end
+
+  # Resource reader example
+  def read_user(%{"id" => id}) do
+    %{
+      "contents" => [
+        McpServer.Resource.content(
+          "User #{id}",
+          "https://example.com/users/#{id}",
+          mimeType: "application/json",
+          text: "{\"id\": \"#{id}\", \"name\": \"User #{id}\"}",
+          title: "User title #{id}"
+        )
+      ]
+    }
   end
 end
 
@@ -74,7 +89,7 @@ defmodule MyApp.Router do
   end
 
   # Define resources
-  resource "user", "User resource", MyApp.ResourceController, :read_user, uri: "https://example.com/users/{id}"
+  resource "user", "User resource", MyApp.MyController, :read_user, uri: "https://example.com/users/{id}"
 end
 ```
 
