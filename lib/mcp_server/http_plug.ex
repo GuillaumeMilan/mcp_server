@@ -12,6 +12,7 @@ defmodule McpServer.HttpPlug do
   use Plug.Builder
   require Logger
   alias McpServer.JsonRpc
+  alias McpServer.URITemplate
 
   def init(opts) do
     router =
@@ -271,91 +272,6 @@ defmodule McpServer.HttpPlug do
     send_resp(conn, 200, response_json)
   end
 
-  def handle_request(conn, %JsonRpc.Request{method: "resources/list", id: id}) do
-    router = conn.private.router
-    session_id = conn.private.session_id
-
-    result = %{
-      "resources" => router.list_resource()
-    }
-
-    response = JsonRpc.new_response(result, id)
-    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
-
-    Logger.info("Sending resources/list response for session: #{session_id}")
-    Logger.debug("Resources list result: #{inspect(result)}")
-
-    send_resp(conn, 200, response_json)
-  end
-
-  def handle_request(conn, %JsonRpc.Request{method: "resources/templates/list", id: id}) do
-    router = conn.private.router
-    session_id = conn.private.session_id
-
-    result = %{
-      "resources" => router.list_templates_resource()
-    }
-
-    response = JsonRpc.new_response(result, id)
-    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
-
-    Logger.info("Sending resources/templates/list response for session: #{session_id}")
-    Logger.debug("Resources templates list result: #{inspect(result)}")
-
-    send_resp(conn, 200, response_json)
-  end
-
-  def handle_request(conn, %JsonRpc.Request{method: "resources/read", params: params, id: id}) do
-    router = conn.private.router
-    session_id = conn.private.session_id
-
-    uri = Map.get(params, "uri")
-
-    Logger.info("Resource read request from session #{session_id} - URI: #{inspect(uri)}")
-
-    # Try to resolve the resource name/template via router.resources_list
-    case find_matching_resource(router, uri) do
-      {:ok, resource_name, vars} ->
-        # delegate to router.resources_read with extracted variables
-        try do
-          result = router.resources_read(resource_name, Map.new(vars))
-
-          response = JsonRpc.new_response(result, id)
-          response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
-
-          send_resp(conn, 200, response_json)
-        rescue
-          e ->
-            Logger.error("Resource read failed: #{inspect(e)}")
-
-            error_response =
-              JsonRpc.new_error_response(
-                -32603,
-                "Internal error",
-                %{"message" => "Resource read failed"},
-                id
-              )
-              |> JsonRpc.encode_response()
-              |> Jason.encode!()
-
-            send_resp(conn, 500, error_response)
-        end
-
-      :no_match ->
-        error_response =
-          JsonRpc.new_error_response(
-            -32602,
-            "Invalid params",
-            %{"message" => "Resource not found"},
-            id
-          )
-          |> JsonRpc.encode_response()
-          |> Jason.encode!()
-
-        send_resp(conn, 400, error_response)
-    end
-  end
-
   def handle_request(conn, %JsonRpc.Request{method: "tools/call", params: params, id: id}) do
     tool_name = Map.get(params, "name")
     arguments = Map.get(params, "arguments", %{})
@@ -413,6 +329,93 @@ defmodule McpServer.HttpPlug do
           |> Jason.encode!()
 
         send_resp(conn, 500, error_response)
+    end
+  end
+
+  def handle_request(conn, %JsonRpc.Request{method: "resources/list", id: id}) do
+    router = conn.private.router
+    session_id = conn.private.session_id
+
+    result = %{
+      "resources" => router.list_resource()
+    }
+
+    response = JsonRpc.new_response(result, id)
+    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+
+    Logger.info("Sending resources/list response for session: #{session_id}")
+    Logger.debug("Resources list result: #{inspect(result)}")
+
+    send_resp(conn, 200, response_json)
+  end
+
+  def handle_request(conn, %JsonRpc.Request{method: "resources/templates/list", id: id}) do
+    router = conn.private.router
+    session_id = conn.private.session_id
+
+    result = %{
+      "resourceTemplates" => router.list_templates_resource()
+    }
+
+    response = JsonRpc.new_response(result, id)
+    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+
+    Logger.info("Sending resources/templates/list response for session: #{session_id}")
+    Logger.debug("Resources templates list result: #{inspect(result)}")
+
+    send_resp(conn, 200, response_json)
+  end
+
+  def handle_request(conn, %JsonRpc.Request{method: "resources/read", params: params, id: id}) do
+    router = conn.private.router
+    session_id = conn.private.session_id
+
+    uri = Map.get(params, "uri")
+
+    Logger.info("Resource read request from session #{session_id} - URI: #{inspect(uri)}")
+
+    # Try to resolve the resource name/template via router.resources_list
+    case find_matching_resource(router, uri) do
+      {:ok, resource_name, vars} ->
+        # delegate to router.resources_read with extracted variables
+        try do
+          result = router.resources_read(resource_name, Map.new(vars))
+
+          response = JsonRpc.new_response(result, id)
+          response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+
+          send_resp(conn, 200, response_json)
+        rescue
+          e ->
+            Logger.error("Resource read failed: #{inspect(e)}")
+
+            error_response =
+              JsonRpc.new_error_response(
+                -32603,
+                "Internal error",
+                %{"message" => "Resource read failed"},
+                id
+              )
+              |> JsonRpc.encode_response()
+              |> Jason.encode!()
+
+            send_resp(conn, 500, error_response)
+        end
+
+      :no_match ->
+        Logger.error("Resource not found for URI: #{inspect(uri)}")
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32602,
+            "Invalid params",
+            %{"message" => "Resource not found"},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 400, error_response)
     end
   end
 
@@ -614,6 +617,7 @@ defmodule McpServer.HttpPlug do
   end
 
   # Try to find a matching resource for a given URI by comparing against router.resources_list()
+  # Uses `McpServer.URITemplate` for template matching.
   defp find_matching_resource(router, uri) when is_binary(uri) do
     # First check static resources for exact match
     static_resources = router.list_resource()
@@ -623,63 +627,34 @@ defmodule McpServer.HttpPlug do
         {:ok, res["name"], []}
 
       nil ->
-        # Then check template resources using template matching
+        # Then check template resources using URITemplate.match/2
         templates = router.list_templates_resource()
 
         templates
         |> Enum.find_value(:no_match, fn res ->
-          res_uri = Map.get(res, "uri")
+          res_uri = Map.get(res, "uriTemplate")
 
-          case match_uri_template(res_uri, uri) do
-            {:ok, vars} -> {:ok, res["name"], vars}
-            :no_match -> false
+          if is_binary(res_uri) do
+            tpl = URITemplate.new(res_uri)
+
+            case URITemplate.match(tpl, uri) do
+              {:ok, vars_map} when is_map(vars_map) ->
+                # Convert vars_map (map) into list of {var, value} as expected by callers
+                vars = Enum.map(vars_map, fn {k, v} -> {k, v} end)
+                {:ok, res["name"], vars}
+
+              :nomatch ->
+                false
+
+              _ ->
+                false
+            end
+          else
+            false
           end
         end)
     end
   end
 
   defp find_matching_resource(_router, _), do: :no_match
-
-  # Match a simple URI template like "https://example.com/users/{id}" against a concrete uri
-  # Returns {:ok, [{var, value}...]} or :no_match
-  defp match_uri_template(nil, _uri), do: :no_match
-
-  defp match_uri_template(template, uri) do
-    t_parts = String.split(template, "/", trim: true)
-    u_parts = String.split(uri, "/", trim: true)
-
-    if length(t_parts) != length(u_parts) do
-      :no_match
-    else
-      Enum.zip(t_parts, u_parts)
-      |> Enum.reduce_while({:ok, []}, fn
-        {t_part, u_part}, {:ok, acc} ->
-          case extract_var(t_part) do
-            {:var, var_name} ->
-              {:cont, {:ok, [{var_name, u_part} | acc]}}
-
-            :no_var ->
-              if t_part == u_part do
-                {:cont, {:ok, acc}}
-              else
-                {:halt, :no_match}
-              end
-          end
-
-        _, _ ->
-          {:halt, :no_match}
-      end)
-      |> case do
-        {:ok, vars} -> {:ok, vars}
-        :no_match -> :no_match
-      end
-    end
-  end
-
-  defp extract_var(part) do
-    case Regex.run(~r/^{(.+)}$/, part) do
-      [_, var] -> {:var, var}
-      _ -> :no_var
-    end
-  end
 end
