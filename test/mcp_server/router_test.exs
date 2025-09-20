@@ -1,6 +1,6 @@
 defmodule McpServer.RouterTest do
   use ExUnit.Case, async: true
-  import McpServer.Prompt, only: [message: 3, completion: 2]
+  import McpServer.Controller, only: [message: 3, completion: 2, content: 3]
 
   # Mock controller for testing
   defmodule TestController do
@@ -60,7 +60,7 @@ defmodule McpServer.RouterTest do
     def read_user(%{"id" => id}) do
       %{
         "contents" => [
-          McpServer.Resource.content(
+          content(
             "User #{id}",
             "https://example.com/users/#{id}",
             mimeType: "application/json",
@@ -80,7 +80,7 @@ defmodule McpServer.RouterTest do
     def read_static(_opts) do
       %{
         "contents" => [
-          McpServer.Resource.content(
+          content(
             "static.txt",
             "https://example.com/static",
             mimeType: "text/plain",
@@ -295,40 +295,6 @@ defmodule McpServer.RouterTest do
           end
         end
       end
-    end
-  end
-
-  # Test prompt functionality separately for now until we implement the macro
-  describe "prompt helper functions" do
-    test "message/3 creates proper message structure" do
-      msg = message("user", "text", "Hello world!")
-
-      assert msg == %{
-               "role" => "user",
-               "content" => %{
-                 "type" => "text",
-                 "text" => "Hello world!"
-               }
-             }
-    end
-
-    test "completion/2 creates proper completion structure with defaults" do
-      comp = completion(["Alice", "Bob"], [])
-
-      assert comp == %{
-               "values" => ["Alice", "Bob"],
-               "hasMore" => false
-             }
-    end
-
-    test "completion/2 creates proper completion structure with options" do
-      comp = completion(["Alice", "Bob"], total: 10, has_more: true)
-
-      assert comp == %{
-               "values" => ["Alice", "Bob"],
-               "total" => 10,
-               "hasMore" => true
-             }
     end
   end
 
