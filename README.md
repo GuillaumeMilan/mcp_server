@@ -1,9 +1,11 @@
 # McpServer
 
+[![Hex.pm](https://img.shields.io/hexpm/v/mcp_server.svg)](https://hex.pm/packages/mcp_server)
+[![Hexdocs.pm](https://img.shields.io/badge/hexdocs-documentation-blue.svg)](https://hexdocs.pm/mcp_server)
 
-McpServer is a DSL for defining Model Context Protocol (MCP) tools, prompts, and routers in Elixir. It allows you to easily expose tool endpoints with input/output schemas and validation, as well as define interactive prompts with argument completion.
+McpServer is an Elixir library that builds a DSL for defining Model Context Protocol (MCP) tools, prompts, and routers in Elixir. It allows you to easily expose tool endpoints with input/output schemas and validation, as well as define interactive prompts with argument completion.
 
-## Installation
+## Installation and setup
 
 1. **Add dependencies to your `mix.exs`:**
 
