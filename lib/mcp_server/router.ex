@@ -952,7 +952,7 @@ defmodule McpServer.Router do
     default_call_tool_clause =
       quote do
         def call_tool(_conn, tool_name, _) do
-          raise ArgumentError, "Tool '#{tool_name}' not found"
+          {:error, "Tool '#{tool_name}' not found"}
         end
       end
 
@@ -970,7 +970,15 @@ defmodule McpServer.Router do
                 {:error, e}
 
               :ok ->
-                unquote(tool.controller).unquote(tool.function)(conn, args)
+                try do
+                  case unquote(tool.controller).unquote(tool.function)(conn, args) do
+                    {:ok, result} -> {:ok, result}
+                    {:error, _} = error -> error
+                    result -> {:ok, result}
+                  end
+                rescue
+                  e -> {:error, "Tool execution failed: #{Exception.message(e)}"}
+                end
             end
           end
         end
@@ -980,7 +988,7 @@ defmodule McpServer.Router do
     default_get_prompt_clause =
       quote do
         def get_prompt(_conn, prompt_name, _) do
-          raise ArgumentError, "Prompt '#{prompt_name}' not found"
+          {:error, "Prompt '#{prompt_name}' not found"}
         end
       end
 
@@ -998,10 +1006,21 @@ defmodule McpServer.Router do
                 {:error, e}
 
               :ok ->
-                unquote(prompt.statements.get_controller).unquote(prompt.statements.get_function)(
-                  conn,
-                  args
-                )
+                try do
+                  case unquote(prompt.statements.get_controller).unquote(
+                         prompt.statements.get_function
+                       )(
+                         conn,
+                         args
+                       ) do
+                    {:ok, result} -> {:ok, result}
+                    {:error, _} = error -> error
+                    result when is_list(result) -> {:ok, result}
+                    result -> {:error, "Invalid prompt response: #{inspect(result)}"}
+                  end
+                rescue
+                  e -> {:error, "Prompt execution failed: #{Exception.message(e)}"}
+                end
             end
           end
         end
@@ -1011,7 +1030,7 @@ defmodule McpServer.Router do
     default_complete_prompt_clause =
       quote do
         def complete_prompt(_conn, prompt_name, _argument_name, _prefix) do
-          raise ArgumentError, "Prompt '#{prompt_name}' not found"
+          {:error, "Prompt '#{prompt_name}' not found"}
         end
       end
 
@@ -1024,17 +1043,26 @@ defmodule McpServer.Router do
             arguments = unquote(Macro.escape(prompt.statements.arguments))
 
             unless Map.has_key?(arguments, argument_name) do
-              raise ArgumentError,
-                    "Argument '#{argument_name}' not found for prompt '#{unquote(prompt.name)}'"
+              {:error,
+               "Argument '#{argument_name}' not found for prompt '#{unquote(prompt.name)}'"}
+            else
+              try do
+                case unquote(prompt.statements.complete_controller).unquote(
+                       prompt.statements.complete_function
+                     )(
+                       conn,
+                       argument_name,
+                       prefix
+                     ) do
+                  {:ok, result} -> {:ok, result}
+                  {:error, _} = error -> error
+                  result when is_map(result) -> {:ok, result}
+                  result -> {:error, "Invalid completion response: #{inspect(result)}"}
+                end
+              rescue
+                e -> {:error, "Completion execution failed: #{Exception.message(e)}"}
+              end
             end
-
-            unquote(prompt.statements.complete_controller).unquote(
-              prompt.statements.complete_function
-            )(
-              conn,
-              argument_name,
-              prefix
-            )
           end
         end
       end)
@@ -1044,7 +1072,7 @@ defmodule McpServer.Router do
     default_read_resource_clause =
       quote do
         def read_resource(_conn, resource_name, _opts) do
-          raise ArgumentError, "Resource '#{resource_name}' not found"
+          {:error, "Resource '#{resource_name}' not found"}
         end
       end
 
@@ -1053,7 +1081,16 @@ defmodule McpServer.Router do
       |> Enum.map(fn resource ->
         quote do
           def read_resource(conn, unquote(resource.name), opts) do
-            unquote(resource.read_controller).unquote(resource.read_function)(conn, opts)
+            try do
+              case unquote(resource.read_controller).unquote(resource.read_function)(conn, opts) do
+                {:ok, result} -> {:ok, result}
+                {:error, _} = error -> error
+                result when is_map(result) -> {:ok, result}
+                result -> {:error, "Invalid resource response: #{inspect(result)}"}
+              end
+            rescue
+              e -> {:error, "Resource read failed: #{Exception.message(e)}"}
+            end
           end
         end
       end)
@@ -1062,7 +1099,7 @@ defmodule McpServer.Router do
     default_complete_resource_clause =
       quote do
         def complete_resource(_conn, resource_name, _argument_name, _prefix) do
-          raise ArgumentError, "Resource '#{resource_name}' not found"
+          {:error, "Resource '#{resource_name}' not found or does not support completion"}
         end
       end
 
@@ -1072,11 +1109,20 @@ defmodule McpServer.Router do
       |> Enum.map(fn resource ->
         quote do
           def complete_resource(conn, unquote(resource.name), argument_name, prefix) do
-            unquote(resource.complete_controller).unquote(resource.complete_function)(
-              conn,
-              argument_name,
-              prefix
-            )
+            try do
+              case unquote(resource.complete_controller).unquote(resource.complete_function)(
+                     conn,
+                     argument_name,
+                     prefix
+                   ) do
+                {:ok, result} -> {:ok, result}
+                {:error, _} = error -> error
+                result when is_map(result) -> {:ok, result}
+                result -> {:error, "Invalid completion response: #{inspect(result)}"}
+              end
+            rescue
+              e -> {:error, "Resource completion failed: #{Exception.message(e)}"}
+            end
           end
         end
       end)
@@ -1085,21 +1131,24 @@ defmodule McpServer.Router do
     resources_list_static_clause =
       quote do
         def list_resources(_conn) do
-          unquote(resources_list_static(Module.get_attribute(env.module, :resources, %{})))
+          {:ok, unquote(resources_list_static(Module.get_attribute(env.module, :resources, %{})))}
         end
       end
 
     resources_list_templates_clause =
       quote do
         def list_templates_resource(_conn) do
-          unquote(resources_list_templates(Module.get_attribute(env.module, :resources, %{})))
-          |> Enum.map(fn t ->
-            uri = Map.get(t, "uri")
+          result =
+            unquote(resources_list_templates(Module.get_attribute(env.module, :resources, %{})))
+            |> Enum.map(fn t ->
+              uri = Map.get(t, "uri")
 
-            t
-            |> Map.delete("uri")
-            |> Map.put("uriTemplate", uri)
-          end)
+              t
+              |> Map.delete("uri")
+              |> Map.put("uriTemplate", uri)
+            end)
+
+          {:ok, result}
         end
       end
 
@@ -1109,7 +1158,7 @@ defmodule McpServer.Router do
       end
 
       def list_tools(_conn) do
-        unquote(list_tools(Module.get_attribute(env.module, :tools, %{})))
+        {:ok, unquote(list_tools(Module.get_attribute(env.module, :tools, %{})))}
       end
 
       def prompts_debug do
@@ -1117,7 +1166,7 @@ defmodule McpServer.Router do
       end
 
       def prompts_list(_conn) do
-        unquote(prompts_list(Module.get_attribute(env.module, :prompts, %{})))
+        {:ok, unquote(prompts_list(Module.get_attribute(env.module, :prompts, %{})))}
       end
 
       def resources_debug do

@@ -105,7 +105,7 @@ defmodule McpServer do
 
   alias McpServer.Conn
 
-  @type error :: {:error, code :: integer(), message :: String.t()}
+  @type error :: {:error, message :: String.t()}
 
   @callback list_tools(Conn.t()) :: {:ok, list()} | error()
   @callback call_tool(Conn.t(), String.t(), map()) :: {:ok, map()} | error()

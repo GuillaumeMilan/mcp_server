@@ -398,17 +398,35 @@ defmodule McpServer.HttpPlug do
     session_id = conn.private.session_id
     mcp_conn = conn.private.mcp_conn
 
-    result = %{
-      "tools" => router.list_tools(mcp_conn)
-    }
+    case router.list_tools(mcp_conn) do
+      {:ok, tools} ->
+        result = %{
+          "tools" => tools
+        }
 
-    response = JsonRpc.new_response(result, id)
-    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+        response = JsonRpc.new_response(result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
-    Logger.info("Sending tools/list response for session: #{session_id}")
-    Logger.debug("Tools list result: #{inspect(result)}")
+        Logger.info("Sending tools/list response for session: #{session_id}")
+        Logger.debug("Tools list result: #{inspect(result)}")
 
-    send_resp(conn, 200, response_json)
+        send_resp(conn, 200, response_json)
+
+      {:error, error_message} ->
+        Logger.error("Failed to list tools for session #{session_id}: #{error_message}")
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32603,
+            "Internal error",
+            %{"message" => error_message},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 500, error_response)
+    end
   end
 
   def handle_request(conn, %JsonRpc.Request{method: "tools/call", params: params, id: id}) do
@@ -475,34 +493,73 @@ defmodule McpServer.HttpPlug do
     session_id = conn.private.session_id
     mcp_conn = conn.private.mcp_conn
 
-    result = %{
-      "resources" => router.list_resourcess(mcp_conn)
-    }
+    case router.list_resources(mcp_conn) do
+      {:ok, resources} ->
+        result = %{
+          "resources" => resources
+        }
 
-    response = JsonRpc.new_response(result, id)
-    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+        response = JsonRpc.new_response(result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
-    Logger.info("Sending resources/list response for session: #{session_id}")
-    Logger.debug("Resources list result: #{inspect(result)}")
+        Logger.info("Sending resources/list response for session: #{session_id}")
+        Logger.debug("Resources list result: #{inspect(result)}")
 
-    send_resp(conn, 200, response_json)
+        send_resp(conn, 200, response_json)
+
+      {:error, error_message} ->
+        Logger.error("Failed to list resources for session #{session_id}: #{error_message}")
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32603,
+            "Internal error",
+            %{"message" => error_message},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 500, error_response)
+    end
   end
 
   def handle_request(conn, %JsonRpc.Request{method: "resources/templates/list", id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
 
-    result = %{
-      "resourceTemplates" => router.list_templates_resource()
-    }
+    case router.list_templates_resource(mcp_conn) do
+      {:ok, templates} ->
+        result = %{
+          "resourceTemplates" => templates
+        }
 
-    response = JsonRpc.new_response(result, id)
-    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+        response = JsonRpc.new_response(result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
-    Logger.info("Sending resources/templates/list response for session: #{session_id}")
-    Logger.debug("Resources templates list result: #{inspect(result)}")
+        Logger.info("Sending resources/templates/list response for session: #{session_id}")
+        Logger.debug("Resources templates list result: #{inspect(result)}")
 
-    send_resp(conn, 200, response_json)
+        send_resp(conn, 200, response_json)
+
+      {:error, error_message} ->
+        Logger.error(
+          "Failed to list resource templates for session #{session_id}: #{error_message}"
+        )
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32603,
+            "Internal error",
+            %{"message" => error_message},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 500, error_response)
+    end
   end
 
   def handle_request(conn, %JsonRpc.Request{method: "resources/read", params: params, id: id}) do
@@ -518,22 +575,22 @@ defmodule McpServer.HttpPlug do
     case find_matching_resource(router, uri) do
       {:ok, resource_name, vars} ->
         # delegate to router.read_resource with extracted variables
-        try do
-          result = router.read_resource(mcp_conn, resource_name, Map.new(vars))
+        case router.read_resource(mcp_conn, resource_name, Map.new(vars)) do
+          {:ok, result} ->
+            response = JsonRpc.new_response(result, id)
+            response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
-          response = JsonRpc.new_response(result, id)
-          response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+            Logger.info("Resource read successful for session #{session_id}")
+            send_resp(conn, 200, response_json)
 
-          send_resp(conn, 200, response_json)
-        rescue
-          e ->
-            Logger.error("Resource read failed: #{inspect(e)}")
+          {:error, error_message} ->
+            Logger.error("Resource read failed for session #{session_id}: #{error_message}")
 
             error_response =
               JsonRpc.new_error_response(
                 -32603,
                 "Internal error",
-                %{"message" => "Resource read failed"},
+                %{"message" => error_message},
                 id
               )
               |> JsonRpc.encode_response()
@@ -565,17 +622,35 @@ defmodule McpServer.HttpPlug do
     session_id = conn.private.session_id
     mcp_conn = conn.private.mcp_conn
 
-    result = %{
-      "prompts" => router.prompts_list(mcp_conn)
-    }
+    case router.prompts_list(mcp_conn) do
+      {:ok, prompts} ->
+        result = %{
+          "prompts" => prompts
+        }
 
-    response = JsonRpc.new_response(result, id)
-    response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+        response = JsonRpc.new_response(result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
-    Logger.info("Sending prompts/list response for session: #{session_id}")
-    Logger.debug("Prompts list result: #{inspect(result)}")
+        Logger.info("Sending prompts/list response for session: #{session_id}")
+        Logger.debug("Prompts list result: #{inspect(result)}")
 
-    send_resp(conn, 200, response_json)
+        send_resp(conn, 200, response_json)
+
+      {:error, error_message} ->
+        Logger.error("Failed to list prompts for session #{session_id}: #{error_message}")
+
+        error_response =
+          JsonRpc.new_error_response(
+            -32603,
+            "Internal error",
+            %{"message" => error_message},
+            id
+          )
+          |> JsonRpc.encode_response()
+          |> Jason.encode!()
+
+        send_resp(conn, 500, error_response)
+    end
   end
 
   def handle_request(conn, %JsonRpc.Request{method: "completion/complete", params: params, id: id}) do
@@ -653,33 +728,6 @@ defmodule McpServer.HttpPlug do
           |> Jason.encode!()
 
         send_resp(conn, 400, error_response)
-
-      messages when is_list(messages) ->
-        result = %{
-          "description" => "Prompt response",
-          "messages" => messages
-        }
-
-        response = JsonRpc.new_response(result, id)
-        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
-
-        Logger.info("Prompt get successful for session #{session_id}: #{inspect(result)}")
-        send_resp(conn, 200, response_json)
-
-      _ ->
-        Logger.error("Unexpected response format from prompt get for session #{session_id}")
-
-        error_response =
-          JsonRpc.new_error_response(
-            -32603,
-            "Internal error",
-            %{"message" => "Unexpected response format"},
-            id
-          )
-          |> JsonRpc.encode_response()
-          |> Jason.encode!()
-
-        send_resp(conn, 500, error_response)
     end
   end
 
@@ -719,20 +767,16 @@ defmodule McpServer.HttpPlug do
     # Extract the argument name and prefix from the argument parameter
     case argument do
       %{"name" => arg_name, "value" => prefix} ->
-        try do
-          completion_result = router.complete_prompt(mcp_conn, prompt_name, arg_name, prefix)
+        case router.complete_prompt(mcp_conn, prompt_name, arg_name, prefix) do
+          {:ok, completion_result} ->
+            result = %{
+              "completion" => completion_result
+            }
 
-          result = %{
-            "completion" => completion_result
-          }
+            {:ok, result}
 
-          {:ok, result}
-        catch
-          :error, %ArgumentError{message: message} ->
-            {:error, message}
-
-          _, error ->
-            {:error, "Completion failed: #{inspect(error)}"}
+          {:error, error_message} ->
+            {:error, error_message}
         end
 
       _ ->
@@ -757,18 +801,13 @@ defmodule McpServer.HttpPlug do
         # Find resource by matching URI against templates
         case find_matching_resource(router, resource_uri) do
           {:ok, resource_name, _vars} ->
-            try do
-              completion_result =
-                router.complete_resource(mcp_conn, resource_name, arg_name, prefix)
+            case router.complete_resource(mcp_conn, resource_name, arg_name, prefix) do
+              {:ok, completion_result} ->
+                result = %{"completion" => completion_result}
+                {:ok, result}
 
-              result = %{"completion" => completion_result}
-              {:ok, result}
-            catch
-              :error, %ArgumentError{message: message} ->
-                {:error, message}
-
-              _, error ->
-                {:error, "Completion failed: #{inspect(error)}"}
+              {:error, error_message} ->
+                {:error, error_message}
             end
 
           :no_match ->
@@ -789,39 +828,47 @@ defmodule McpServer.HttpPlug do
   # Uses `McpServer.URITemplate` for template matching.
   defp find_matching_resource(router, uri) when is_binary(uri) do
     # First check static resources for exact match
-    static_resources = router.list_resources()
+    case router.list_resources(%McpServer.Conn{}) do
+      {:ok, static_resources} ->
+        case Enum.find(static_resources, fn res -> Map.get(res, "uri") == uri end) do
+          %{} = res ->
+            {:ok, res["name"], []}
 
-    case Enum.find(static_resources, fn res -> Map.get(res, "uri") == uri end) do
-      %{} = res ->
-        {:ok, res["name"], []}
+          nil ->
+            # Then check template resources using URITemplate.match/2
+            case router.list_templates_resource(%McpServer.Conn{}) do
+              {:ok, templates} ->
+                templates
+                |> Enum.find_value(:no_match, fn res ->
+                  res_uri = Map.get(res, "uriTemplate")
 
-      nil ->
-        # Then check template resources using URITemplate.match/2
-        templates = router.list_templates_resource()
+                  if is_binary(res_uri) do
+                    tpl = URITemplate.new(res_uri)
 
-        templates
-        |> Enum.find_value(:no_match, fn res ->
-          res_uri = Map.get(res, "uriTemplate")
+                    case URITemplate.match(tpl, uri) do
+                      {:ok, vars_map} when is_map(vars_map) ->
+                        # Convert vars_map (map) into list of {var, value} as expected by callers
+                        vars = Enum.map(vars_map, fn {k, v} -> {k, v} end)
+                        {:ok, res["name"], vars}
 
-          if is_binary(res_uri) do
-            tpl = URITemplate.new(res_uri)
+                      :nomatch ->
+                        false
 
-            case URITemplate.match(tpl, uri) do
-              {:ok, vars_map} when is_map(vars_map) ->
-                # Convert vars_map (map) into list of {var, value} as expected by callers
-                vars = Enum.map(vars_map, fn {k, v} -> {k, v} end)
-                {:ok, res["name"], vars}
+                      _ ->
+                        false
+                    end
+                  else
+                    false
+                  end
+                end)
 
-              :nomatch ->
-                false
-
-              _ ->
-                false
+              {:error, _} ->
+                :no_match
             end
-          else
-            false
-          end
-        end)
+        end
+
+      {:error, _} ->
+        :no_match
     end
   end
 
