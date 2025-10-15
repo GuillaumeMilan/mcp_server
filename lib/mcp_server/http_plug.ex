@@ -1,13 +1,144 @@
 defmodule McpServer.HttpPlug do
   @moduledoc """
-  This module implements the streamable HTTP standard for MCP servers.
+  HTTP Plug implementation for Model Context Protocol (MCP) servers.
 
+  This module implements the MCP HTTP transport specification (2025-06-18), providing
+  a complete JSON-RPC 2.0 over HTTP interface for MCP servers. It handles session
+  management, request routing, and all standard MCP protocol methods.
+
+  ## Features
+
+  - **Session Management**: Automatic session ID generation and validation
+  - **Tool Support**: List and execute tools defined in your router
+  - **Prompt Support**: List, get, and complete prompts
+  - **Resource Support**: List, read, and complete resources (static and template-based)
+  - **Completion API**: Argument completion for prompts and resources
+
+  ## Configuration Options
+
+  When initializing the plug, you can provide the following options:
+
+  ### Required Options
+
+  * `:router` (required) - Module that uses `McpServer.Router`. This defines your
+    tools, prompts, and resources. The plug will raise an `ArgumentError` if not provided.
+
+  ### Optional Options
+
+  * `:server_info` (optional) - Map containing server metadata returned during initialization.
+    Defaults to `%{}`. Common fields include:
+    * `:name` - Server name (string)
+    * `:version` - Server version (string)
+
+  * `:init` (optional) - Function that initializes the MCP connection from the Plug connection.
+    Defaults to `fn plug_conn -> %McpServer.Conn{session_id: plug_conn.private.session_id} end`.
+    This callback receives the `Plug.Conn` struct and must return a `%McpServer.Conn{}` struct.
+    Use this to bridge authentication data or session information from upstream plugs
+    (e.g., OAuth sessions) into your MCP connection context.
+
+    Example with authentication bridge:
+    ```elixir
+    init: fn plug_conn ->
+      user_id = plug_conn.assigns[:current_user_id]
+      %McpServer.Conn{
+        session_id: plug_conn.private.session_id,
+        user_id: user_id
+      }
+    end
+    ```
 
   ## Example Usage
 
+  ### Basic Setup with Bandit
+
   ```elixir
-  {Bandit, plug: {McpServer.HttpPlug, router: MyRouter, server_info: %{name: "MyServer", version: "1.0.0"}}, port: port}
+  # In your application.ex supervision tree
+  children = [
+    {Bandit,
+     plug: {McpServer.HttpPlug,
+            router: MyApp.Router,
+            server_info: %{name: "MyApp MCP Server", version: "1.0.0"}},
+     port: 4000,
+     ip: {127, 0, 0, 1}}  # Bind to localhost only for security
+  ]
+
+  opts = [strategy: :one_for_one, name: MyApp.Supervisor]
+  Supervisor.start_link(children, opts)
   ```
+
+  ## Supported MCP Methods
+
+  The plug implements the following MCP protocol methods:
+
+  ### Initialization & Session Management
+
+  * `initialize` - Initialize a new session and receive server capabilities
+  * `notifications/initialized` - Client notification after initialization completes
+
+  ### Tools
+
+  * `tools/list` - List all available tools
+  * `tools/call` - Execute a tool with arguments
+
+  ### Prompts
+
+  * `prompts/list` - List all available prompts
+  * `prompts/get` - Get prompt messages with resolved arguments
+
+  ### Resources
+
+  * `resources/list` - List static resources
+  * `resources/templates/list` - List resource templates
+  * `resources/read` - Read a resource by URI
+
+  ### Completion
+
+  * `completion/complete` - Get argument completion suggestions for prompts or resources
+
+  ### Logging
+
+  * `logging/setLevel` - Set logging level for the current session
+
+  ## Session Management
+
+  The plug automatically manages sessions using the `mcp-session-id` header:
+
+  1. **Session Creation**: When a client calls `initialize`, the server generates a
+     unique session ID and returns it in the `mcp-session-id` response header.
+
+  2. **Session Validation**: All subsequent requests (except `initialize` and
+     `notifications/initialized`) must include the `mcp-session-id` header with
+     a valid session ID.
+
+  3. **Session Context**: The session ID is made available to your router functions
+     via the passed connection to your router, allowing session-specific behavior in tools
+     and prompts. To get the session see `McpServer.Conn.get_session_id/1`.
+
+  ## HTTP Transport Details
+
+  * **Method**: Only `POST` requests are supported. `GET` requests return 405.
+  * **Content-Type**: Request and response bodies use `application/json; charset=utf-8`
+  * **Headers**: They are not customizable for the moment, and include:
+    * `cache-control: no-cache`
+    * `connection: keep-alive`
+    * `mcp-session-id: <session-id>` (after initialization)
+  * **Body Limit**: Request bodies are limited to 1MB (1,000,000 bytes)
+
+  ## Security Considerations
+
+  ⚠️ **Important**: MCP servers should follow the security guidelines from the
+  [MCP specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#security-warning):
+
+  * Bind to localhost (`127.0.0.1`) only, not `0.0.0.0`
+  * Use authentication/authorization if exposing over a network
+  * Validate and sanitize all tool inputs
+  * Run tools with minimal required privileges
+
+  ## See Also
+
+  * `McpServer.Router` - Define your MCP tools, prompts, and resources
+  * `McpServer.JsonRpc` - JSON-RPC 2.0 encoding/decoding
+  * `McpServer.URITemplate` - URI template matching for resources
   """
   use Plug.Builder
   require Logger
@@ -22,10 +153,15 @@ defmodule McpServer.HttpPlug do
         :error -> raise ArgumentError, "Router must be provided in options"
       end
 
+    init_conn_callback =
+      Keyword.get(opts, :init, fn plug_conn ->
+        %McpServer.Conn{session_id: plug_conn.private.session_id}
+      end)
+
     server_info =
       Keyword.get(opts, :server_info, %{})
 
-    %{router: router, server_info: server_info}
+    %{router: router, server_info: server_info, init_conn_callback: init_conn_callback}
   end
 
   def call(conn, _) when conn.method == "GET" do
@@ -36,6 +172,8 @@ defmodule McpServer.HttpPlug do
 
   def call(conn, opts) when conn.method == "POST" do
     {:ok, body, conn} = Plug.Conn.read_body(conn, length: 1_000_000)
+    %McpServer.Conn{} = mcp_conn = opts.init_conn_callback.(conn)
+    conn = put_private(conn, :mcp_conn, mcp_conn)
 
     conn
     |> setup_connection(opts)
@@ -220,8 +358,8 @@ defmodule McpServer.HttpPlug do
     session_id = conn.private.session_id
     Logger.info("Client initialized for session: #{session_id}")
 
-    # Just return 200 OK for notifications
-    send_resp(conn, 200, "")
+    # Just return 202 Accepted for notifications
+    send_resp(conn, 202, "")
   end
 
   def handle_request(conn, %JsonRpc.Request{method: "logging/setLevel", params: params, id: id}) do
@@ -258,9 +396,10 @@ defmodule McpServer.HttpPlug do
   def handle_request(conn, %JsonRpc.Request{method: "tools/list", id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
 
     result = %{
-      "tools" => router.tools_list()
+      "tools" => router.list_tools(mcp_conn)
     }
 
     response = JsonRpc.new_response(result, id)
@@ -277,14 +416,13 @@ defmodule McpServer.HttpPlug do
     arguments = Map.get(params, "arguments", %{})
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
 
     Logger.info(
       "Tool call request from session #{session_id} - Name: #{inspect(tool_name)}, Arguments: #{inspect(arguments)}"
     )
 
-    Process.put(:session_id, session_id)
-
-    router.tools_call(tool_name, arguments)
+    router.call_tool(mcp_conn, tool_name, arguments)
     |> case do
       {:ok, content} ->
         result = %{
@@ -335,9 +473,10 @@ defmodule McpServer.HttpPlug do
   def handle_request(conn, %JsonRpc.Request{method: "resources/list", id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
 
     result = %{
-      "resources" => router.list_resource()
+      "resources" => router.list_resourcess(mcp_conn)
     }
 
     response = JsonRpc.new_response(result, id)
@@ -369,6 +508,7 @@ defmodule McpServer.HttpPlug do
   def handle_request(conn, %JsonRpc.Request{method: "resources/read", params: params, id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
 
     uri = Map.get(params, "uri")
 
@@ -377,9 +517,9 @@ defmodule McpServer.HttpPlug do
     # Try to resolve the resource name/template via router.resources_list
     case find_matching_resource(router, uri) do
       {:ok, resource_name, vars} ->
-        # delegate to router.resources_read with extracted variables
+        # delegate to router.read_resource with extracted variables
         try do
-          result = router.resources_read(resource_name, Map.new(vars))
+          result = router.read_resource(mcp_conn, resource_name, Map.new(vars))
 
           response = JsonRpc.new_response(result, id)
           response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
@@ -423,9 +563,10 @@ defmodule McpServer.HttpPlug do
   def handle_request(conn, %JsonRpc.Request{method: "prompts/list", id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
 
     result = %{
-      "prompts" => router.prompts_list()
+      "prompts" => router.prompts_list(mcp_conn)
     }
 
     response = JsonRpc.new_response(result, id)
@@ -440,6 +581,7 @@ defmodule McpServer.HttpPlug do
   def handle_request(conn, %JsonRpc.Request{method: "completion/complete", params: params, id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
     ref = Map.get(params, "ref")
     argument = Map.get(params, "argument")
 
@@ -447,7 +589,7 @@ defmodule McpServer.HttpPlug do
       "Completion request from session #{session_id} - Ref: #{inspect(ref)}, Argument: #{inspect(argument)}"
     )
 
-    case handle_completion(router, ref, argument) do
+    case handle_completion(router, mcp_conn, ref, argument) do
       {:ok, result} ->
         response = JsonRpc.new_response(result, id)
         response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
@@ -475,6 +617,7 @@ defmodule McpServer.HttpPlug do
   def handle_request(conn, %JsonRpc.Request{method: "prompts/get", params: params, id: id}) do
     router = conn.private.router
     session_id = conn.private.session_id
+    mcp_conn = conn.private.mcp_conn
     name = Map.get(params, "name")
     arguments = Map.get(params, "arguments", %{})
 
@@ -482,9 +625,7 @@ defmodule McpServer.HttpPlug do
       "Prompt get request from session #{session_id} - Name: #{inspect(name)}, Arguments: #{inspect(arguments)}"
     )
 
-    Process.put(:session_id, session_id)
-
-    case router.prompts_get(name, arguments) do
+    case router.get_prompt(mcp_conn, name, arguments) do
       {:ok, messages} ->
         result = %{
           # TODO: Could be enhanced to include prompt description
@@ -567,14 +708,19 @@ defmodule McpServer.HttpPlug do
   end
 
   # Handle completion requests for different reference types
-  defp handle_completion(router, %{"type" => "ref/prompt", "name" => prompt_name}, argument) do
+  defp handle_completion(
+         router,
+         mcp_conn,
+         %{"type" => "ref/prompt", "name" => prompt_name},
+         argument
+       ) do
     Logger.debug("Handling completion for prompt: #{prompt_name}, argument: #{inspect(argument)}")
 
     # Extract the argument name and prefix from the argument parameter
     case argument do
       %{"name" => arg_name, "value" => prefix} ->
         try do
-          completion_result = router.prompts_complete(prompt_name, arg_name, prefix)
+          completion_result = router.complete_prompt(mcp_conn, prompt_name, arg_name, prefix)
 
           result = %{
             "completion" => completion_result
@@ -594,12 +740,17 @@ defmodule McpServer.HttpPlug do
     end
   end
 
-  defp handle_completion(router, %{"type" => "ref/resource", "uri" => resource_uri}, argument) do
+  defp handle_completion(
+         router,
+         mcp_conn,
+         %{"type" => "ref/resource", "uri" => resource_uri},
+         argument
+       ) do
     Logger.debug(
       "Handling completion for resource: #{resource_uri}, argument: #{inspect(argument)}"
     )
 
-    # Try to resolve resource name from templates and delegate to router.resources_complete
+    # Try to resolve resource name from templates and delegate to router.complete_resource
     # The argument is expected to be %{"name" => arg_name, "value" => prefix}
     case argument do
       %{"name" => arg_name, "value" => prefix} ->
@@ -607,7 +758,8 @@ defmodule McpServer.HttpPlug do
         case find_matching_resource(router, resource_uri) do
           {:ok, resource_name, _vars} ->
             try do
-              completion_result = router.resources_complete(resource_name, arg_name, prefix)
+              completion_result =
+                router.complete_resource(mcp_conn, resource_name, arg_name, prefix)
 
               result = %{"completion" => completion_result}
               {:ok, result}
@@ -628,7 +780,7 @@ defmodule McpServer.HttpPlug do
     end
   end
 
-  defp handle_completion(_router, ref, _argument) do
+  defp handle_completion(_router, _mcp_conn, ref, _argument) do
     Logger.warning("Unsupported completion reference type: #{inspect(ref)}")
     {:error, "Unsupported reference type"}
   end
@@ -637,7 +789,7 @@ defmodule McpServer.HttpPlug do
   # Uses `McpServer.URITemplate` for template matching.
   defp find_matching_resource(router, uri) when is_binary(uri) do
     # First check static resources for exact match
-    static_resources = router.list_resource()
+    static_resources = router.list_resources()
 
     case Enum.find(static_resources, fn res -> Map.get(res, "uri") == uri end) do
       %{} = res ->

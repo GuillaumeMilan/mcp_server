@@ -2,25 +2,30 @@ defmodule McpServer.RouterTest do
   use ExUnit.Case, async: true
   import McpServer.Controller, only: [message: 3, completion: 2, content: 3]
 
+  # Helper to create a mock connection
+  defp mock_conn do
+    %McpServer.Conn{session_id: "test-session-123", private: %{}}
+  end
+
   # Mock controller for testing
   defmodule TestController do
-    def echo(args) do
+    def echo(_conn, args) do
       Map.get(args, "message", "default")
     end
 
-    def greet(args) do
+    def greet(_conn, args) do
       name = Map.get(args, "name", "World")
       "Hello, #{name}!"
     end
 
-    def calculate(args) do
+    def calculate(_conn, args) do
       a = Map.get(args, "a", 0)
       b = Map.get(args, "b", 0)
       a + b
     end
 
     # Prompt controller functions
-    def get_greet_prompt(%{"user_name" => user_name}) do
+    def get_greet_prompt(_conn, %{"user_name" => user_name}) do
       [
         message(
           "user",
@@ -35,20 +40,20 @@ defmodule McpServer.RouterTest do
       ]
     end
 
-    def complete_greet_prompt("user_name", user_name_prefix) do
+    def complete_greet_prompt(_conn, "user_name", user_name_prefix) do
       names = ["Alice", "Bob", "Charlie", "David"]
       filtered_names = Enum.filter(names, &String.starts_with?(&1, user_name_prefix))
       completion(filtered_names, total: 100, has_more: true)
     end
 
-    def get_system_prompt(_args) do
+    def get_system_prompt(_conn, _args) do
       [
         message("system", "text", "You are a helpful assistant."),
         message("user", "text", "Hello!")
       ]
     end
 
-    def complete_system_prompt("mode", mode_prefix) do
+    def complete_system_prompt(_conn, "mode", mode_prefix) do
       modes = ["debug", "production", "development"]
       filtered_modes = Enum.filter(modes, &String.starts_with?(&1, mode_prefix))
       completion(filtered_modes, [])
@@ -57,7 +62,7 @@ defmodule McpServer.RouterTest do
 
   # Resource controller for testing
   defmodule TestResourceController do
-    def read_user(%{"id" => id}) do
+    def read_user(_conn, %{"id" => id}) do
       %{
         "contents" => [
           content(
@@ -71,13 +76,13 @@ defmodule McpServer.RouterTest do
       }
     end
 
-    def complete_user("id", prefix) do
+    def complete_user(_conn, "id", prefix) do
       ids = ["42", "43", "100"]
       filtered = Enum.filter(ids, &String.starts_with?(&1, prefix))
       completion(filtered, total: 100, has_more: false)
     end
 
-    def read_static(_opts) do
+    def read_static(_conn, _opts) do
       %{
         "contents" => [
           content(
@@ -142,9 +147,10 @@ defmodule McpServer.RouterTest do
     end
   end
 
-  describe "tools_list/0" do
+  describe "list_tools/1" do
     test "returns list of all defined tools" do
-      tools = TestRouter.tools_list()
+      conn = mock_conn()
+      tools = TestRouter.list_tools(conn)
 
       assert length(tools) == 3
 
@@ -155,7 +161,8 @@ defmodule McpServer.RouterTest do
     end
 
     test "each tool has correct structure" do
-      tools = TestRouter.tools_list()
+      conn = mock_conn()
+      tools = TestRouter.list_tools(conn)
       echo_tool = Enum.find(tools, &(&1["name"] == "echo"))
 
       assert echo_tool["name"] == "echo"
@@ -166,7 +173,8 @@ defmodule McpServer.RouterTest do
     end
 
     test "tool has correct input and output fields" do
-      tools = TestRouter.tools_list()
+      conn = mock_conn()
+      tools = TestRouter.list_tools(conn)
       echo_tool = Enum.find(tools, &(&1["name"] == "echo"))
 
       # Check input schema structure
@@ -181,40 +189,48 @@ defmodule McpServer.RouterTest do
     end
   end
 
-  describe "tools_call/2" do
+  describe "call_tool/3" do
     test "successfully calls tool with valid arguments" do
-      result = TestRouter.tools_call("echo", %{"message" => "Hello World"})
+      conn = mock_conn()
+      result = TestRouter.call_tool(conn, "echo", %{"message" => "Hello World"})
       assert result == "Hello World"
     end
 
     test "calls tool with optional arguments" do
-      result = TestRouter.tools_call("greet", %{"name" => "Alice"})
+      conn = mock_conn()
+      result = TestRouter.call_tool(conn, "greet", %{"name" => "Alice"})
       assert result == "Hello, Alice!"
     end
 
     test "calls tool without optional arguments" do
-      result = TestRouter.tools_call("greet", %{})
+      conn = mock_conn()
+      result = TestRouter.call_tool(conn, "greet", %{})
       assert result == "Hello, World!"
     end
 
     test "calls tool with multiple required arguments" do
-      result = TestRouter.tools_call("calculate", %{"a" => 5, "b" => 3})
+      conn = mock_conn()
+      result = TestRouter.call_tool(conn, "calculate", %{"a" => 5, "b" => 3})
       assert result == 8
     end
 
     test "raises error when tool not found" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Tool 'nonexistent' not found", fn ->
-        TestRouter.tools_call("nonexistent", %{})
+        TestRouter.call_tool(conn, "nonexistent", %{})
       end
     end
 
     test "raises error when required arguments missing" do
-      assert {:error, message} = TestRouter.tools_call("echo", %{})
+      conn = mock_conn()
+      assert {:error, message} = TestRouter.call_tool(conn, "echo", %{})
       assert message =~ "Missing required arguments for tool 'echo'"
     end
 
     test "raises error when multiple required arguments missing" do
-      assert {:error, message} = TestRouter.tools_call("calculate", %{"a" => 5})
+      conn = mock_conn()
+      assert {:error, message} = TestRouter.call_tool(conn, "calculate", %{"a" => 5})
       assert message =~ "Missing required arguments for tool 'calculate'"
     end
   end
@@ -223,7 +239,7 @@ defmodule McpServer.RouterTest do
     test "raises error when duplicate tool is defined" do
       assert_raise CompileError, ~r/Tool "duplicate" is already defined/, fn ->
         defmodule DuplicateTool.TestController do
-          def test(_args), do: "test"
+          def test(_conn, _args), do: "test"
         end
 
         defmodule DuplicateTool.Router do
@@ -244,7 +260,7 @@ defmodule McpServer.RouterTest do
     test "raises error when duplicate input field is defined" do
       assert_raise SyntaxError, ~r/input_field "param" duplicated in tool "test"/, fn ->
         defmodule DuplicateField.TestController do
-          def test(_args), do: "test"
+          def test(_conn, _args), do: "test"
         end
 
         defmodule DuplicateField.Router do
@@ -262,7 +278,7 @@ defmodule McpServer.RouterTest do
     test "raises error when duplicate output field is defined" do
       assert_raise SyntaxError, ~r/output_field "result" duplicated in tool "test"/, fn ->
         defmodule DuplicateOutput.TestController do
-          def test(_args), do: "test"
+          def test(_conn, _args), do: "test"
         end
 
         defmodule DuplicateOutput.Router do
@@ -281,7 +297,7 @@ defmodule McpServer.RouterTest do
     test "raises SyntaxError when unexpected statement is used in tool definition" do
       assert_raise SyntaxError, ~r/Unexpected statement in tool definition/, fn ->
         defmodule InvalidStatement.TestController do
-          def test(_args), do: "test"
+          def test(_conn, _args), do: "test"
         end
 
         defmodule InvalidStatement.Router do
@@ -298,9 +314,10 @@ defmodule McpServer.RouterTest do
     end
   end
 
-  describe "prompts_list/0" do
+  describe "prompts_list/1" do
     test "returns list of all defined prompts" do
-      prompts = TestRouter.prompts_list()
+      conn = mock_conn()
+      prompts = TestRouter.prompts_list(conn)
 
       assert length(prompts) == 2
 
@@ -310,7 +327,8 @@ defmodule McpServer.RouterTest do
     end
 
     test "each prompt has correct structure" do
-      prompts = TestRouter.prompts_list()
+      conn = mock_conn()
+      prompts = TestRouter.prompts_list(conn)
       greet_prompt = Enum.find(prompts, &(&1["name"] == "greet"))
 
       assert greet_prompt["name"] == "greet"
@@ -319,7 +337,8 @@ defmodule McpServer.RouterTest do
     end
 
     test "prompt has correct arguments" do
-      prompts = TestRouter.prompts_list()
+      conn = mock_conn()
+      prompts = TestRouter.prompts_list(conn)
       greet_prompt = Enum.find(prompts, &(&1["name"] == "greet"))
 
       arguments = greet_prompt["arguments"]
@@ -332,9 +351,10 @@ defmodule McpServer.RouterTest do
     end
   end
 
-  describe "prompts_get/2" do
+  describe "get_prompt/3" do
     test "successfully gets prompt with valid arguments" do
-      result = TestRouter.prompts_get("greet", %{"user_name" => "Alice"})
+      conn = mock_conn()
+      result = TestRouter.get_prompt(conn, "greet", %{"user_name" => "Alice"})
 
       assert is_list(result)
       assert length(result) == 2
@@ -346,20 +366,24 @@ defmodule McpServer.RouterTest do
     end
 
     test "raises error when prompt not found" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Prompt 'nonexistent' not found", fn ->
-        TestRouter.prompts_get("nonexistent", %{})
+        TestRouter.get_prompt(conn, "nonexistent", %{})
       end
     end
 
     test "raises error when required arguments missing" do
-      assert {:error, message} = TestRouter.prompts_get("greet", %{})
+      conn = mock_conn()
+      assert {:error, message} = TestRouter.get_prompt(conn, "greet", %{})
       assert message =~ "Missing required arguments for prompt 'greet'"
     end
   end
 
-  describe "prompts_complete/3" do
+  describe "complete_prompt/4" do
     test "successfully completes prompt argument" do
-      result = TestRouter.prompts_complete("greet", "user_name", "A")
+      conn = mock_conn()
+      result = TestRouter.complete_prompt(conn, "greet", "user_name", "A")
 
       assert result["values"] == ["Alice"]
       assert result["total"] == 100
@@ -367,21 +391,26 @@ defmodule McpServer.RouterTest do
     end
 
     test "raises error when prompt not found" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Prompt 'nonexistent' not found", fn ->
-        TestRouter.prompts_complete("nonexistent", "arg", "")
+        TestRouter.complete_prompt(conn, "nonexistent", "arg", "")
       end
     end
 
     test "raises error when argument not found" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Argument 'nonexistent' not found for prompt 'greet'", fn ->
-        TestRouter.prompts_complete("greet", "nonexistent", "")
+        TestRouter.complete_prompt(conn, "greet", "nonexistent", "")
       end
     end
   end
 
-  describe "resources_list/0 and resources_read/2" do
+  describe "resources_list/1 and read_resource/3" do
     test "resources_list returns defined resources" do
-      static_resources = TestRouter.list_resource()
+      conn = mock_conn()
+      static_resources = TestRouter.list_resources(conn)
       static_names = Enum.map(static_resources, & &1["name"])
       static_titles = Enum.map(static_resources, & &1["title"])
       static_descriptions = Enum.map(static_resources, & &1["description"])
@@ -392,7 +421,7 @@ defmodule McpServer.RouterTest do
       assert "Static resource" in static_descriptions
       assert "text/plain" in static_mime_types
 
-      template_resources = TestRouter.list_templates_resource()
+      template_resources = TestRouter.list_templates_resource(conn)
       template_names = Enum.map(template_resources, & &1["name"])
       templates_titles = Enum.map(template_resources, & &1["title"])
       templates_descriptions = Enum.map(template_resources, & &1["description"])
@@ -404,8 +433,9 @@ defmodule McpServer.RouterTest do
       assert "application/json" in templates_mime_types
     end
 
-    test "resources_read delegates to controller and returns contents" do
-      result = TestRouter.resources_read("user", %{"id" => "42"})
+    test "read_resource delegates to controller and returns contents" do
+      conn = mock_conn()
+      result = TestRouter.read_resource(conn, "user", %{"id" => "42"})
 
       assert is_map(result)
       assert is_list(result["contents"])
@@ -418,14 +448,17 @@ defmodule McpServer.RouterTest do
       assert content["name"] == "User 42"
     end
 
-    test "resources_read raises for unknown resource" do
+    test "read_resource raises for unknown resource" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Resource 'unknown' not found", fn ->
-        TestRouter.resources_read("unknown", %{})
+        TestRouter.read_resource(conn, "unknown", %{})
       end
     end
 
-    test "resources_complete delegates to controller complete function" do
-      result = TestRouter.resources_complete("user", "id", "4")
+    test "complete_resource delegates to controller complete function" do
+      conn = mock_conn()
+      result = TestRouter.complete_resource(conn, "user", "id", "4")
 
       assert result["values"] == ["42", "43"] or result["values"] == ["42"]
       assert result["total"] == 100
@@ -437,8 +470,8 @@ defmodule McpServer.RouterTest do
     test "raises error when duplicate prompt is defined" do
       assert_raise CompileError, ~r/Prompt "duplicate" is already defined/, fn ->
         defmodule DuplicatePrompt.TestController do
-          def get_test(_args), do: []
-          def complete_test(_arg, _prefix), do: completion([], [])
+          def get_test(_conn, _args), do: []
+          def complete_test(_conn, _arg, _prefix), do: completion([], [])
         end
 
         defmodule DuplicatePrompt.Router do
@@ -463,8 +496,8 @@ defmodule McpServer.RouterTest do
     test "raises error when duplicate argument is defined" do
       assert_raise SyntaxError, ~r/argument "param" duplicated in prompt "test"/, fn ->
         defmodule DuplicateArgument.TestController do
-          def get_test(_args), do: []
-          def complete_test(_arg, _prefix), do: completion([], [])
+          def get_test(_conn, _args), do: []
+          def complete_test(_conn, _arg, _prefix), do: completion([], [])
         end
 
         defmodule DuplicateArgument.Router do
@@ -484,7 +517,7 @@ defmodule McpServer.RouterTest do
     test "raises error when get function is not defined" do
       assert_raise CompileError, ~r/Function .* for prompt "test" .* is not exported/, fn ->
         defmodule MissingGet.TestController do
-          def complete_test(_arg, _prefix), do: completion([], [])
+          def complete_test(_conn, _arg, _prefix), do: completion([], [])
         end
 
         defmodule MissingGet.Router do
@@ -503,7 +536,7 @@ defmodule McpServer.RouterTest do
     test "raises error when complete function is not defined" do
       assert_raise CompileError, ~r/Function .* for prompt "test" .* is not exported/, fn ->
         defmodule MissingComplete.TestController do
-          def get_test(_args), do: []
+          def get_test(_conn, _args), do: []
         end
 
         defmodule MissingComplete.Router do
@@ -533,7 +566,7 @@ defmodule McpServer.RouterTest do
 
   describe "router with only tools (no prompts)" do
     defmodule OnlyToolsController do
-      def echo(args) do
+      def echo(_conn, args) do
         Map.get(args, "message", "default")
       end
     end
@@ -549,34 +582,41 @@ defmodule McpServer.RouterTest do
 
     test "compiles successfully with only tools defined" do
       # If this test runs, it means the module compiled successfully
-      assert OnlyToolsRouter.tools_list() |> length() == 1
+      conn = mock_conn()
+      assert OnlyToolsRouter.list_tools(conn) |> length() == 1
     end
 
-    test "tools_call works correctly" do
-      result = OnlyToolsRouter.tools_call("echo", %{"message" => "Hello"})
+    test "call_tool works correctly" do
+      conn = mock_conn()
+      result = OnlyToolsRouter.call_tool(conn, "echo", %{"message" => "Hello"})
       assert result == "Hello"
     end
 
-    test "prompts_get raises error for unknown prompt" do
+    test "get_prompt raises error for unknown prompt" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Prompt 'unknown' not found", fn ->
-        OnlyToolsRouter.prompts_get("unknown", %{})
+        OnlyToolsRouter.get_prompt(conn, "unknown", %{})
       end
     end
 
-    test "prompts_complete raises error for unknown prompt" do
+    test "complete_prompt raises error for unknown prompt" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Prompt 'unknown' not found", fn ->
-        OnlyToolsRouter.prompts_complete("unknown", "arg", "prefix")
+        OnlyToolsRouter.complete_prompt(conn, "unknown", "arg", "prefix")
       end
     end
 
     test "prompts_list returns empty list" do
-      assert OnlyToolsRouter.prompts_list() == []
+      conn = mock_conn()
+      assert OnlyToolsRouter.prompts_list(conn) == []
     end
   end
 
   describe "router with only prompts (no tools)" do
     defmodule OnlyPromptsController do
-      def get_greet_prompt(%{"user_name" => user_name}) do
+      def get_greet_prompt(_conn, %{"user_name" => user_name}) do
         [
           %{
             "role" => "user",
@@ -588,7 +628,7 @@ defmodule McpServer.RouterTest do
         ]
       end
 
-      def complete_greet_prompt("user_name", user_name_prefix) do
+      def complete_greet_prompt(_conn, "user_name", user_name_prefix) do
         names = ["Alice", "Bob", "Charlie"]
         filtered_names = Enum.filter(names, &String.starts_with?(&1, user_name_prefix))
 
@@ -611,28 +651,34 @@ defmodule McpServer.RouterTest do
 
     test "compiles successfully with only prompts defined" do
       # If this test runs, it means the module compiled successfully
-      assert OnlyPromptsRouter.prompts_list() |> length() == 1
+      conn = mock_conn()
+      assert OnlyPromptsRouter.prompts_list(conn) |> length() == 1
     end
 
-    test "prompts_get works correctly" do
-      result = OnlyPromptsRouter.prompts_get("greet", %{"user_name" => "Alice"})
+    test "get_prompt works correctly" do
+      conn = mock_conn()
+      result = OnlyPromptsRouter.get_prompt(conn, "greet", %{"user_name" => "Alice"})
       assert is_list(result)
       assert length(result) == 1
     end
 
-    test "prompts_complete works correctly" do
-      result = OnlyPromptsRouter.prompts_complete("greet", "user_name", "A")
+    test "complete_prompt works correctly" do
+      conn = mock_conn()
+      result = OnlyPromptsRouter.complete_prompt(conn, "greet", "user_name", "A")
       assert result["values"] == ["Alice"]
     end
 
-    test "tools_call raises error for unknown tool" do
+    test "call_tool raises error for unknown tool" do
+      conn = mock_conn()
+
       assert_raise ArgumentError, "Tool 'unknown' not found", fn ->
-        OnlyPromptsRouter.tools_call("unknown", %{})
+        OnlyPromptsRouter.call_tool(conn, "unknown", %{})
       end
     end
 
-    test "tools_list returns empty list" do
-      assert OnlyPromptsRouter.tools_list() == []
+    test "list_tools returns empty list" do
+      conn = mock_conn()
+      assert OnlyPromptsRouter.list_tools(conn) == []
     end
   end
 end

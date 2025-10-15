@@ -1,11 +1,340 @@
 defmodule McpServer.Router do
   @moduledoc """
-  A DSL to define a router for the Model Context Protocol (MCP) server.
+  A Domain-Specific Language (DSL) for defining Model Context Protocol (MCP) servers.
+
+  `McpServer.Router` provides a declarative way to define MCP tools, prompts, and resources
+  with automatic validation, schema generation, and request routing. It implements the
+  `McpServer` behaviour and generates the necessary callback implementations at compile time.
+
+  ## Overview
+
+  The Router DSL allows you to define three main MCP capabilities:
+
+  - **Tools** - Callable functions with typed input/output schemas and validation
+  - **Prompts** - Interactive message templates with argument completion support
+  - **Resources** - Data sources with URI-based access and optional templating
+
+  All controller functions receive a `McpServer.Conn` struct as their first parameter,
+  providing access to session information and connection context.
+
+  ## Usage
+
+  To create an MCP server, use `McpServer.Router` in your module and define your capabilities:
+
+      defmodule MyApp.Router do
+        use McpServer.Router
+
+        # Define tools
+        tool "calculator", "Performs arithmetic operations", MyApp.Calculator, :calculate do
+          input_field("operation", "The operation to perform", :string,
+            required: true,
+            enum: ["add", "subtract", "multiply", "divide"])
+          input_field("a", "First operand", :number, required: true)
+          input_field("b", "Second operand", :number, required: true)
+          output_field("result", "The calculation result", :number)
+        end
+
+        # Define prompts
+        prompt "code_review", "Generates a code review prompt" do
+          argument("language", "Programming language", required: true)
+          argument("code", "Code to review", required: true)
+          get MyApp.Prompts, :get_code_review
+          complete MyApp.Prompts, :complete_code_review
+        end
+
+        # Define resources
+        resource "config", "file:///app/config/{name}.json" do
+          description "Application configuration files"
+          mimeType "application/json"
+          read MyApp.Resources, :read_config
+          complete MyApp.Resources, :complete_config
+        end
+      end
+
+  ## Connection Context
+
+  All controller functions receive a `McpServer.Conn` struct as their first parameter:
+
+      def my_tool(conn, args) do
+        # Access session ID
+        session_id = conn.session_id
+
+        # Access private data stored in the connection
+        user = McpServer.Conn.get_private(conn, :user)
+
+        # Your tool logic here
+      end
+
+  The connection provides:
+  - `session_id` - Unique identifier for the current session
+  - `private` - A map for storing custom data (accessible via helper functions)
+
+  ## Tools
+
+  Tools are functions that clients can invoke with validated inputs. Each tool requires:
+
+  1. A unique name
+  2. A description
+  3. A controller module and function (arity 2: conn, args)
+  4. Input/output field definitions
+
+  ### Tool Definition
+
+      tool "name", "description", ControllerModule, :function_name do
+        input_field("param", "Parameter description", :type, opts)
+        output_field("result", "Result description", :type)
+      end
+
+  ### Supported Field Types
+
+  - `:string` - Text values
+  - `:integer` - Whole numbers
+  - `:number` - Numeric values (integers and floats)
+  - `:boolean` - True/false values
+  - `:array` - Lists of values
+  - `:object` - Nested structures
+
+  ### Field Options
+
+  - `required: true/false` - Whether the field is mandatory (default: false)
+  - `enum: [...]` - Restrict values to a specific set
+  - `default: value` - Default value if not provided
+
+  ### Tool Hints
+
+  Tools can include behavioral hints for clients:
+
+      tool "read_file", "Reads a file", FileController, :read,
+        title: "File Reader",
+        hints: [:read_only, :idempotent, :closed_world] do
+        # fields...
+      end
+
+  Available hints:
+  - `:read_only` - Tool doesn't modify state
+  - `:non_destructive` - Tool is safe to call
+  - `:idempotent` - Tool can be called repeatedly with same result
+  - `:closed_world` - Tool only works with known/predefined data
+
+  ### Controller Implementation
+
+      defmodule MyApp.Calculator do
+        def calculate(conn, %{"operation" => op, "a" => a, "b" => b}) do
+          # Access session info if needed
+          IO.inspect(conn.session_id)
+
+          case op do
+            "add" -> a + b
+            "subtract" -> a - b
+            "multiply" -> a * b
+            "divide" when b != 0 -> a / b
+            "divide" -> {:error, "Division by zero"}
+          end
+        end
+      end
+
+  ## Prompts
+
+  Prompts are interactive message templates that help structure conversations.
+  They support argument completion for improved user experience.
+
+  ### Prompt Definition
+
+      prompt "name", "description" do
+        argument("arg_name", "Argument description", required: true)
+        get ControllerModule, :get_function
+        complete ControllerModule, :complete_function
+      end
+
+  ### Controller Implementation
+
+  Prompt controllers need two functions:
+
+  #### Get Function (arity 2: conn, args)
+
+  Returns a list of messages for the conversation:
+
+      defmodule MyApp.Prompts do
+        import McpServer.Controller, only: [message: 3]
+
+        def get_code_review(conn, %{"language" => lang, "code" => code}) do
+          [
+            message("system", "text",
+              "You are an expert " <> lang <> " code reviewer."),
+            message("user", "text",
+              "Please review this code:\\n\\n" <> code)
+          ]
+        end
+      end
+
+  #### Complete Function (arity 3: conn, argument_name, prefix)
+
+  Provides completion suggestions for prompt arguments:
+
+      defmodule MyApp.Prompts do
+        import McpServer.Controller, only: [completion: 2]
+
+        def complete_code_review(conn, "language", prefix) do
+          languages = ["elixir", "python", "javascript", "rust", "go"]
+          filtered = Enum.filter(languages, &String.starts_with?(&1, prefix))
+
+          completion(filtered, total: length(languages), has_more: false)
+        end
+
+        def complete_code_review(_conn, _arg, _prefix), do: completion([], [])
+      end
+
+  ## Resources
+
+  Resources represent data sources that clients can read. They support:
+  - Static URIs for fixed resources
+  - URI templates with variables (e.g., `{id}`) for dynamic resources
+  - Optional completion for template variables
+
+  ### Static Resource
+
+      resource "readme", "file:///app/README.md" do
+        description "Project README file"
+        mimeType "text/markdown"
+        read MyApp.Resources, :read_readme
+      end
+
+  ### Templated Resource
+
+      resource "user", "https://api.example.com/users/{id}" do
+        description "User profile data"
+        mimeType "application/json"
+        title "User Profile"
+        read MyApp.Resources, :read_user
+        complete MyApp.Resources, :complete_user_id
+      end
+
+  ### Controller Implementation
+
+  #### Read Function (arity 2: conn, params)
+
+  For static resources, params is typically an empty map.
+  For templated resources, params contains the template variable values:
+
+      defmodule MyApp.Resources do
+        import McpServer.Controller, only: [content: 3]
+
+        def read_user(conn, %{"id" => user_id}) do
+          user_data = fetch_user_from_database(user_id)
+
+          %{
+            "contents" => [
+              content(
+                "User " <> user_id,
+                "https://api.example.com/users/" <> user_id,
+                mimeType: "application/json",
+                text: Jason.encode!(user_data)
+              )
+            ]
+          }
+        end
+      end
+
+  #### Complete Function (arity 3: conn, variable_name, prefix)
+
+  Provides completion suggestions for URI template variables:
+
+      defmodule MyApp.Resources do
+        import McpServer.Controller, only: [completion: 2]
+
+        def complete_user_id(conn, "id", prefix) do
+          # Fetch matching user IDs from your data source
+          matching_ids = search_user_ids(prefix)
+
+          completion(matching_ids, total: 1000, has_more: true)
+        end
+      end
+
+  ## Generated Functions
+
+  Using `McpServer.Router` generates the following functions in your module:
+
+  - `list_tools/1` - Returns all defined tools with their schemas
+  - `call_tool/3` - Executes a tool by name with arguments
+  - `prompts_list/1` - Returns all defined prompts
+  - `get_prompt/3` - Gets prompt messages for given arguments
+  - `complete_prompt/4` - Gets completion suggestions for prompt arguments
+  - `list_resources/1` - Returns all static resources
+  - `list_templates_resource/1` - Returns all templated resources
+  - `read_resource/3` - Reads a resource by name
+  - `complete_resource/4` - Gets completion suggestions for resource URIs
+
+  All generated functions require a `McpServer.Conn` as their first parameter.
+
+  ## Validation
+
+  The Router performs compile-time validation:
+
+  - Controller modules must exist
+  - Controller functions must be exported with correct arity
+  - Tool/prompt/resource names must be unique
+  - Field names within a tool must be unique
+  - Required fields must be properly defined
+  - Resource templates with completion must be valid
+
+  Validation errors are raised as `CompileError` with helpful messages.
+
+  ## Example: Complete Router
+
+      defmodule MyApp.MCP do
+        use McpServer.Router
+
+        # Simple echo tool
+        tool "echo", "Echoes back the input", MyApp.Tools, :echo do
+          input_field("message", "Message to echo", :string, required: true)
+          output_field("response", "Echoed message", :string)
+        end
+
+        # Tool with hints and validation
+        tool "database_query", "Queries the database", MyApp.Tools, :query,
+          hints: [:closed_world, :idempotent] do
+          input_field("table", "Table name", :string,
+            required: true,
+            enum: ["users", "posts", "comments"])
+          input_field("limit", "Max results", :integer, default: 10)
+          output_field("results", "Query results", :array)
+        end
+
+        # Greeting prompt
+        prompt "greet", "A friendly greeting" do
+          argument("name", "Person's name", required: true)
+          get MyApp.Prompts, :get_greeting
+          complete MyApp.Prompts, :complete_name
+        end
+
+        # Static resource
+        resource "config", "file:///etc/app/config.json" do
+          description "Application configuration"
+          mimeType "application/json"
+          read MyApp.Resources, :read_config
+        end
+
+        # Dynamic resource
+        resource "document", "file:///docs/{category}/{id}.md" do
+          description "Documentation files"
+          mimeType "text/markdown"
+          read MyApp.Resources, :read_document
+          complete MyApp.Resources, :complete_document_path
+        end
+      end
+
+  ## See Also
+
+  - `McpServer` - The behaviour implemented by routers
+  - `McpServer.Conn` - Connection context structure
+  - `McpServer.Controller` - Helper functions for controllers
+  - `McpServer.HttpPlug` - HTTP transport for MCP servers
   """
 
   defmacro __using__(_opts) do
     quote do
       import McpServer.Router, only: [tool: 5, tool: 6, prompt: 3, resource: 2, resource: 3]
+      @behaviour McpServer
       @before_compile McpServer.Router
     end
   end
@@ -195,10 +524,10 @@ defmodule McpServer.Router do
         line: caller.line
     end
 
-    unless function_exported?(read_controller_module, statements.read_function, 1) do
+    unless function_exported?(read_controller_module, statements.read_function, 2) do
       raise CompileError,
         description:
-          "Function #{inspect(read_controller_module)}.#{statements.read_function}/1 for resource \"#{name}\" read is not exported",
+          "Function #{inspect(read_controller_module)}.#{statements.read_function}/2 for resource \"#{name}\" read is not exported",
         file: caller.file,
         line: caller.line
     end
@@ -233,10 +562,10 @@ defmodule McpServer.Router do
           line: caller.line
       end
 
-      unless function_exported?(complete_controller_module, statements.complete_function, 2) do
+      unless function_exported?(complete_controller_module, statements.complete_function, 3) do
         raise CompileError,
           description:
-            "Function #{inspect(complete_controller_module)}.#{statements.complete_function}/2 for resource \"#{name}\" complete is not exported",
+            "Function #{inspect(complete_controller_module)}.#{statements.complete_function}/3 for resource \"#{name}\" complete is not exported",
           file: caller.file,
           line: caller.line
       end
@@ -340,11 +669,11 @@ defmodule McpServer.Router do
         line: caller.line
     end
 
-    # Check if the function exists with arity 1
-    unless function_exported?(controller_module, function, 1) do
+    # Check if the function exists with arity 2 (conn, args)
+    unless function_exported?(controller_module, function, 2) do
       raise CompileError,
         description:
-          "Function #{inspect(controller_module)}.#{function}/1 for tool \"#{tool_name}\" is not exported",
+          "Function #{inspect(controller_module)}.#{function}/2 for tool \"#{tool_name}\" is not exported",
         file: caller.file,
         line: caller.line
     end
@@ -400,20 +729,20 @@ defmodule McpServer.Router do
         line: caller.line
     end
 
-    # Validate get function - should have arity 1
-    unless function_exported?(get_controller_module, get_function, 1) do
+    # Validate get function - should have arity 2 (conn, args)
+    unless function_exported?(get_controller_module, get_function, 2) do
       raise CompileError,
         description:
-          "Function #{inspect(get_controller_module)}.#{get_function}/1 for prompt \"#{prompt_name}\" get is not exported",
+          "Function #{inspect(get_controller_module)}.#{get_function}/2 for prompt \"#{prompt_name}\" get is not exported",
         file: caller.file,
         line: caller.line
     end
 
-    # Validate complete function - should have arity 2 (argument_name, prefix)
-    unless function_exported?(complete_controller_module, complete_function, 2) do
+    # Validate complete function - should have arity 3 (conn, argument_name, prefix)
+    unless function_exported?(complete_controller_module, complete_function, 3) do
       raise CompileError,
         description:
-          "Function #{inspect(complete_controller_module)}.#{complete_function}/2 for prompt \"#{prompt_name}\" complete is not exported",
+          "Function #{inspect(complete_controller_module)}.#{complete_function}/3 for prompt \"#{prompt_name}\" complete is not exported",
         file: caller.file,
         line: caller.line
     end
@@ -620,18 +949,18 @@ defmodule McpServer.Router do
         line: env.line
     end
 
-    default_tools_call_clause =
+    default_call_tool_clause =
       quote do
-        def tools_call(tool_name, _) do
+        def call_tool(_conn, tool_name, _) do
           raise ArgumentError, "Tool '#{tool_name}' not found"
         end
       end
 
-    tools_call_clauses =
+    call_tool_clauses =
       tools
       |> Enum.map(fn tool ->
         quote do
-          def tools_call(unquote(tool.name), args) do
+          def call_tool(conn, unquote(tool.name), args) do
             case McpServer.Router.check_tool_args(
                    args,
                    unquote(tool.name),
@@ -641,25 +970,25 @@ defmodule McpServer.Router do
                 {:error, e}
 
               :ok ->
-                unquote(tool.controller).unquote(tool.function)(args)
+                unquote(tool.controller).unquote(tool.function)(conn, args)
             end
           end
         end
       end)
-      |> Enum.concat([default_tools_call_clause])
+      |> Enum.concat([default_call_tool_clause])
 
-    default_prompts_get_clause =
+    default_get_prompt_clause =
       quote do
-        def prompts_get(prompt_name, _) do
+        def get_prompt(_conn, prompt_name, _) do
           raise ArgumentError, "Prompt '#{prompt_name}' not found"
         end
       end
 
-    prompts_get_clauses =
+    get_prompt_clauses =
       prompts
       |> Enum.map(fn prompt ->
         quote do
-          def prompts_get(unquote(prompt.name), args) do
+          def get_prompt(conn, unquote(prompt.name), args) do
             case McpServer.Router.check_prompt_args(
                    args,
                    unquote(prompt.name),
@@ -670,26 +999,27 @@ defmodule McpServer.Router do
 
               :ok ->
                 unquote(prompt.statements.get_controller).unquote(prompt.statements.get_function)(
+                  conn,
                   args
                 )
             end
           end
         end
       end)
-      |> Enum.concat([default_prompts_get_clause])
+      |> Enum.concat([default_get_prompt_clause])
 
-    default_prompts_complete_clause =
+    default_complete_prompt_clause =
       quote do
-        def prompts_complete(prompt_name, _argument_name, _prefix) do
+        def complete_prompt(_conn, prompt_name, _argument_name, _prefix) do
           raise ArgumentError, "Prompt '#{prompt_name}' not found"
         end
       end
 
-    prompts_complete_clauses =
+    complete_prompt_clauses =
       prompts
       |> Enum.map(fn prompt ->
         quote do
-          def prompts_complete(unquote(prompt.name), argument_name, prefix) do
+          def complete_prompt(conn, unquote(prompt.name), argument_name, prefix) do
             # Validate that the argument exists for this prompt
             arguments = unquote(Macro.escape(prompt.statements.arguments))
 
@@ -701,65 +1031,67 @@ defmodule McpServer.Router do
             unquote(prompt.statements.complete_controller).unquote(
               prompt.statements.complete_function
             )(
+              conn,
               argument_name,
               prefix
             )
           end
         end
       end)
-      |> Enum.concat([default_prompts_complete_clause])
+      |> Enum.concat([default_complete_prompt_clause])
 
     # Resources
-    default_resources_read_clause =
+    default_read_resource_clause =
       quote do
-        def resources_read(resource_name, _opts) do
+        def read_resource(_conn, resource_name, _opts) do
           raise ArgumentError, "Resource '#{resource_name}' not found"
         end
       end
 
-    resources_read_clauses =
+    read_resource_clauses =
       resources
       |> Enum.map(fn resource ->
         quote do
-          def resources_read(unquote(resource.name), opts) do
-            unquote(resource.read_controller).unquote(resource.read_function)(opts)
+          def read_resource(conn, unquote(resource.name), opts) do
+            unquote(resource.read_controller).unquote(resource.read_function)(conn, opts)
           end
         end
       end)
-      |> Enum.concat([default_resources_read_clause])
+      |> Enum.concat([default_read_resource_clause])
 
-    default_resources_complete_clause =
+    default_complete_resource_clause =
       quote do
-        def resources_complete(resource_name, _argument_name, _prefix) do
+        def complete_resource(_conn, resource_name, _argument_name, _prefix) do
           raise ArgumentError, "Resource '#{resource_name}' not found"
         end
       end
 
-    resources_complete_clauses =
+    complete_resource_clauses =
       resources
       |> Enum.filter(fn resource -> resource.complete_controller != nil end)
       |> Enum.map(fn resource ->
         quote do
-          def resources_complete(unquote(resource.name), argument_name, prefix) do
+          def complete_resource(conn, unquote(resource.name), argument_name, prefix) do
             unquote(resource.complete_controller).unquote(resource.complete_function)(
+              conn,
               argument_name,
               prefix
             )
           end
         end
       end)
-      |> Enum.concat([default_resources_complete_clause])
+      |> Enum.concat([default_complete_resource_clause])
 
     resources_list_static_clause =
       quote do
-        def list_resource do
+        def list_resources(_conn) do
           unquote(resources_list_static(Module.get_attribute(env.module, :resources, %{})))
         end
       end
 
     resources_list_templates_clause =
       quote do
-        def list_templates_resource do
+        def list_templates_resource(_conn) do
           unquote(resources_list_templates(Module.get_attribute(env.module, :resources, %{})))
           |> Enum.map(fn t ->
             uri = Map.get(t, "uri")
@@ -776,15 +1108,15 @@ defmodule McpServer.Router do
         unquote(Macro.escape(Module.get_attribute(env.module, :tools, %{})))
       end
 
-      def tools_list do
-        unquote(tools_list(Module.get_attribute(env.module, :tools, %{})))
+      def list_tools(_conn) do
+        unquote(list_tools(Module.get_attribute(env.module, :tools, %{})))
       end
 
       def prompts_debug do
         unquote(Macro.escape(Module.get_attribute(env.module, :prompts, %{})))
       end
 
-      def prompts_list do
+      def prompts_list(_conn) do
         unquote(prompts_list(Module.get_attribute(env.module, :prompts, %{})))
       end
 
@@ -795,13 +1127,13 @@ defmodule McpServer.Router do
       unquote(resources_list_static_clause)
       unquote(resources_list_templates_clause)
 
-      # resources_read clauses are generated below (including default)
+      # read_resource clauses are generated below (including default)
 
-      unquote(tools_call_clauses)
-      unquote(prompts_get_clauses)
-      unquote(prompts_complete_clauses)
-      unquote(resources_read_clauses)
-      unquote(resources_complete_clauses)
+      unquote(call_tool_clauses)
+      unquote(get_prompt_clauses)
+      unquote(complete_prompt_clauses)
+      unquote(read_resource_clauses)
+      unquote(complete_resource_clauses)
     end
   end
 
@@ -880,7 +1212,7 @@ defmodule McpServer.Router do
     end
   end
 
-  defp tools_list(tools) do
+  defp list_tools(tools) do
     tools
     |> Enum.map(fn {name, tool} ->
       quote do
