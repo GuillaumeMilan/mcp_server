@@ -5,12 +5,33 @@
 
 McpServer is an Elixir library that builds a DSL for defining Model Context Protocol (MCP) tools, prompts, and routers in Elixir. It allows you to easily expose tool endpoints with input/output schemas and validation, as well as define interactive prompts with argument completion.
 
+> **📢 Upgrading from v0.3.x?** See the [Migration Guide](MIGRATION_GUIDE.md) for a step-by-step upgrade path to v0.4.0's struct-based API.
+
+## What's New in v0.4.0
+
+Version 0.4.0 introduces **typed structs** throughout the library:
+
+- ✨ **Type-safe structures**: All MCP protocol types are now proper Elixir structs with `@enforce_keys` validation
+- 🔍 **Better IDE support**: Autocomplete and inline documentation for all struct fields
+- 🛡️ **Compile-time safety**: Catch missing fields and typos at compile time, not runtime
+- 📝 **Clearer code**: Use `.field` syntax instead of `["field"]` for accessing data
+- 🔄 **Automatic JSON encoding**: All structs implement `Jason.Encoder` with proper camelCase conversion
+
+**Breaking Changes:**
+- Controller functions now require `conn` as first parameter (arity change)
+- Router list functions renamed (e.g., `tools_list()` → `list_tools(conn)`)
+- All functions return typed structs instead of plain maps
+
+See [CHANGELOG_v0.4.0.md](CHANGELOG_v0.4.0.md) for complete details.
+
 ## Key Features
 
-- **Connection Context**: All controller functions receive a `conn` parameter as their first argument, providing access to session information, user data, and other connection-specific context through `conn.session_id` and `conn.private`.
-- **Type-Safe Tools**: Define tools with input validation and output schemas
+- **Type-Safe Structs**: All MCP protocol structures are now typed Elixir structs with compile-time validation
+- **Connection Context**: All controller functions receive a `conn` parameter as their first argument, providing access to session information, user data, and other connection-specific context through `conn.session_id` and `conn.private`
+- **Validated Tools**: Define tools with automatic input validation and output schemas
 - **Interactive Prompts**: Create prompts with argument completion support
 - **Resource Management**: Define and serve resources with URI templates
+- **Automatic JSON Encoding**: All structs automatically encode to proper MCP JSON format
 
 ## Installation and setup
 
@@ -19,7 +40,7 @@ McpServer is an Elixir library that builds a DSL for defining Model Context Prot
 ```elixir
 def deps do
   [
-    {:mcp_server, "~> 0.3.0"},
+    {:mcp_server, "~> 0.4.0"},
     {:bandit, "~> 1.0"} # HTTP server
   ]
 end
@@ -31,7 +52,7 @@ Create a module that uses `McpServer.Router` and defines your tools and prompts.
 
 ```elixir
 defmodule MyApp.MyController do
-  import McpServer.Prompt, only: [message: 3, completion: 2]
+  import McpServer.Controller, only: [message: 3, completion: 2, content: 3]
   
   # Tool functions - all receive conn as first parameter
   def echo(_conn, args), do: Map.get(args, "message", "default")
@@ -52,11 +73,11 @@ defmodule MyApp.MyController do
     completion(filtered_names, total: 100, has_more: true)
   end
 
-  # Resource reader example - receives conn as first parameter
+  # Resource reader example - receives conn as first parameter, returns ReadResult struct
   def read_user(_conn, %{"id" => id}) do
-    %{
-      "contents" => [
-        McpServer.Resource.content(
+    McpServer.Resource.ReadResult.new(
+      contents: [
+        content(
           "User #{id}",
           "https://example.com/users/#{id}",
           mimeType: "application/json",
@@ -64,7 +85,7 @@ defmodule MyApp.MyController do
           title: "User title #{id}"
         )
       ]
-    }
+    )
   end
 end
 
@@ -199,40 +220,55 @@ You can call your tools via the router module (note: you need to pass a connecti
 
 ```elixir
 iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> MyApp.Router.call_tool(conn, "echo", %{"message" => "Hello World"})
+iex> {:ok, result} = MyApp.Router.call_tool(conn, "echo", %{"message" => "Hello World"})
+iex> result
 # => "Hello World"
 ```
 
-List all tools and their schemas:
+List all tools and their schemas (returns Tool structs):
 
 ```elixir
 iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> MyApp.Router.list_tools(conn)
-# => [%{"name" => "echo", ...}, ...]
+iex> {:ok, tools} = MyApp.Router.list_tools(conn)
+iex> hd(tools).name
+# => "echo"
+iex> hd(tools).description
+# => "Echoes back the input"
 ```
 
 ### Testing Prompts
 
-You can get prompt messages:
+You can get prompt messages (returns Message structs):
 
 ```elixir
 iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> MyApp.Router.get_prompt(conn, "greet", %{"user_name" => "Alice"})
-# => [%{"role" => "user", "content" => %{"type" => "text", "text" => "Hello Alice! ..."}}, ...]
+iex> {:ok, messages} = MyApp.Router.get_prompt(conn, "greet", %{"user_name" => "Alice"})
+iex> hd(messages).role
+# => "user"
+iex> hd(messages).content.text
+# => "Hello Alice! Welcome to our MCP server..."
 ```
 
-Get completion suggestions for prompt arguments:
+Get completion suggestions for prompt arguments (returns Completion struct):
 
 ```elixir
 iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> MyApp.Router.complete_prompt(conn, "greet", "user_name", "A")
-# => %{"values" => ["Alice"], "total" => 100, "hasMore" => true}
+iex> {:ok, completion} = MyApp.Router.complete_prompt(conn, "greet", "user_name", "A")
+iex> completion.values
+# => ["Alice"]
+iex> completion.total
+# => 100
+iex> completion.has_more
+# => true
 ```
 
-List all prompts:
+List all prompts (returns Prompt structs):
 
 ```elixir
 iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> MyApp.Router.prompts_list(conn)
-# => [%{"name" => "greet", "description" => "...", "arguments" => [...]}, ...]
+iex> {:ok, prompts} = MyApp.Router.prompts_list(conn)
+iex> hd(prompts).name
+# => "greet"
+iex> hd(prompts).description
+# => "A friendly greeting prompt that welcomes users"
 ```

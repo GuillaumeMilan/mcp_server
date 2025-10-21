@@ -6,11 +6,11 @@ defmodule McpServer.MixProject do
   def project do
     [
       app: :mcp_server,
-      version: "0.3.0",
+      version: "0.4.0",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      description: "HTTP implementation of the MCP (Model Context Protocol)",
+      description: "HTTP implementation of the MCP (Model Context Protocol) with typed structs",
       package: package(),
 
       # Docs
@@ -57,7 +57,22 @@ defmodule McpServer.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md"],
+      extras: [
+        "README.md",
+        "MIGRATION_GUIDE.md",
+        "STRUCTURES.md",
+        "CHANGELOG_v0.4.0.md",
+        "QUICK_MIGRATION_REFERENCE.md"
+      ],
+      groups_for_extras: [
+        "Getting Started": ["README.md"],
+        "Migration & Upgrade": [
+          "MIGRATION_GUIDE.md",
+          "QUICK_MIGRATION_REFERENCE.md",
+          "CHANGELOG_v0.4.0.md"
+        ],
+        "Reference": ["STRUCTURES.md"]
+      ],
       source_url: @source_url,
       formatters: ["html"]
     ]
