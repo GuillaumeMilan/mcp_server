@@ -8,24 +8,32 @@ defmodule McpServer.Controller do
         import McpServer.Controller
 
         def read_resource(params) do
-          %{
-            "contents" => [
+          McpServer.Resource.ReadResult.new(
+            contents: [
               content("file.txt", "file:///path/to/file.txt", mimeType: "text/plain", text: "File content")
-            ],
-            "messages" => [
-              message("user", "text", "Hello!"),
-              message("assistant", "text", "Hi there!")
-            ],
-            "completions" => [
-              completion(["Alice", "Bob"], total: 10, has_more: true)
             ]
-          }
+          )
+        end
+
+        def get_prompt(_conn, _args) do
+          [
+            message("user", "text", "Hello!"),
+            message("assistant", "text", "Hi there!")
+          ]
+        end
+
+        def complete_prompt(_conn, _arg, _prefix) do
+          completion(["Alice", "Bob"], total: 10, has_more: true)
         end
       end
   """
 
   @doc """
-  Build a resource content map.
+  Creates a resource content item.
+
+  Returns a `McpServer.Resource.Content` struct that can be used in read_resource responses.
+
+  ## Parameters
 
   - `name` (string): the display name of the content (e.g. filename)
   - `uri` (string): the canonical URI of the content
@@ -33,57 +41,56 @@ defmodule McpServer.Controller do
     - `:mimeType` - mime type string
     - `:text` - textual content
     - `:title` - title for the content
-    - `:blob` - binary content; when present it's base64-encoded into the returned map
+    - `:blob` - binary content; when present it's base64-encoded
 
-  The returned map uses string keys matching the tests' expectations.
-
-  # Examples
+  ## Examples
 
       iex> content("main.rs", "file:///project/src/main.rs", mimeType: "plain/text", text: "<actual content of the file>...", title: "Main file of the code base")
-      %{
-        "name" => "main.rs",
-        "uri" => "file:///project/src/main.rs",
-        "mimeType" => "plain/text",
-        "text" => "<actual content of the file>...",
-        "title" => "Main file of the code base"
+      %McpServer.Resource.Content{
+        name: "main.rs",
+        uri: "file:///project/src/main.rs",
+        mime_type: "plain/text",
+        text: "<actual content of the file>...",
+        title: "Main file of the code base"
       }
 
       iex> content("image.png", "file:///tmp/image.png", mimeType: "image/png", blob: <<255, 216, 255>>)
-      %{
-        "name" => "image.png",
-        "uri" => "file:///tmp/image.png",
-        "mimeType" => "image/png",
-        "blob" => "/9j/"  # base64-encoded
+      %McpServer.Resource.Content{
+        name: "image.png",
+        uri: "file:///tmp/image.png",
+        mime_type: "image/png",
+        blob: "/9j/"  # base64-encoded
       }
   """
-  @spec content(String.t(), String.t(), keyword()) :: map()
+  @spec content(String.t(), String.t(), keyword()) :: McpServer.Resource.Content.t()
   def content(name, uri, opts \\ []) when is_binary(name) and is_binary(uri) and is_list(opts) do
-    mime = Keyword.get(opts, :mimeType)
+    mime_type = Keyword.get(opts, :mimeType)
     text = Keyword.get(opts, :text)
     title = Keyword.get(opts, :title)
     blob = Keyword.get(opts, :blob)
 
-    base = %{
-      "name" => name,
-      "uri" => uri
-    }
-
-    base = maybe_put(base, "mimeType", mime)
-    base = maybe_put(base, "text", text)
-    base = maybe_put(base, "title", title)
-
-    base =
+    # Base64 encode blob if provided
+    encoded_blob =
       case blob do
-        nil -> base
-        b when is_binary(b) -> Map.put(base, "blob", Base.encode64(b))
+        nil -> nil
+        b when is_binary(b) -> Base.encode64(b)
         _ -> raise ArgumentError, ":blob option must be a binary"
       end
 
-    base
+    McpServer.Resource.Content.new(
+      name: name,
+      uri: uri,
+      mime_type: mime_type,
+      text: text,
+      title: title,
+      blob: encoded_blob
+    )
   end
 
   @doc """
   Creates a message for a prompt response.
+
+  Returns a `McpServer.Prompt.Message` struct that can be used in get_prompt responses.
 
   ## Parameters
 
@@ -94,27 +101,27 @@ defmodule McpServer.Controller do
   ## Examples
 
       iex> message("user", "text", "Hello world!")
-      %{
-        "role" => "user",
-        "content" => %{
-          "type" => "text",
-          "text" => "Hello world!"
+      %McpServer.Prompt.Message{
+        role: "user",
+        content: %McpServer.Prompt.MessageContent{
+          type: "text",
+          text: "Hello world!"
         }
       }
   """
+  @spec message(String.t(), String.t(), String.t()) :: McpServer.Prompt.Message.t()
   def message(role, type, content)
       when is_binary(role) and is_binary(type) and is_binary(content) do
-    %{
-      "role" => role,
-      "content" => %{
-        "type" => type,
-        type => content
-      }
-    }
+    McpServer.Prompt.Message.new(
+      role: role,
+      content: McpServer.Prompt.MessageContent.new(type: type, text: content)
+    )
   end
 
   @doc """
-  Creates a completion response for prompt argument completion.
+  Creates a completion response for prompt argument or resource URI completion.
+
+  Returns a `McpServer.Completion` struct that can be used in completion responses.
 
   ## Parameters
 
@@ -126,36 +133,30 @@ defmodule McpServer.Controller do
   ## Examples
 
       iex> completion(["Alice", "Bob", "Charlie"])
-      %{
-          "values" => ["Alice", "Bob", "Charlie"],
+      %McpServer.Completion{
+          values: ["Alice", "Bob", "Charlie"]
       }
 
       iex> completion(["Alice", "Bob"], total: 10, has_more: true)
-      %{
-          "values" => ["Alice", "Bob"],
-          "total" => 10,
-          "hasMore" => true
+      %McpServer.Completion{
+          values: ["Alice", "Bob"],
+          total: 10,
+          has_more: true
       }
 
       iex> completion(["Alice", "Bob"], total: 10, has_more: false)
-      %{
-          "values" => ["Alice", "Bob"],
-          "total" => 10,
-          "hasMore" => false
+      %McpServer.Completion{
+          values: ["Alice", "Bob"],
+          total: 10,
+          has_more: false
       }
   """
+  @spec completion(list(String.t()), keyword()) :: McpServer.Completion.t()
   def completion(values, opts \\ []) when is_list(values) do
-    total = Keyword.get(opts, :total)
-    has_more = Keyword.get(opts, :has_more)
-
-    %{
-      "values" => values,
-      "total" => total,
-      "hasMore" => has_more
-    }
-    |> Map.reject(fn {_, v} -> is_nil(v) end)
+    McpServer.Completion.new(
+      values: values,
+      total: Keyword.get(opts, :total),
+      has_more: Keyword.get(opts, :has_more)
+    )
   end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

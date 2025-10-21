@@ -1138,17 +1138,8 @@ defmodule McpServer.Router do
     resources_list_templates_clause =
       quote do
         def list_templates_resource(_conn) do
-          result =
-            unquote(resources_list_templates(Module.get_attribute(env.module, :resources, %{})))
-            |> Enum.map(fn t ->
-              uri = Map.get(t, "uri")
-
-              t
-              |> Map.delete("uri")
-              |> Map.put("uriTemplate", uri)
-            end)
-
-          {:ok, result}
+          {:ok,
+           unquote(resources_list_templates(Module.get_attribute(env.module, :resources, %{})))}
         end
       end
 
@@ -1268,21 +1259,34 @@ defmodule McpServer.Router do
         hints = Keyword.get(unquote(tool.opts), :hints, [])
         title = Keyword.get(unquote(tool.opts), :title, unquote(name))
 
-        input_schema =
+        input_schema_map =
           McpServer.Router.format_schema(unquote(input_fields(tool.statements.input_fields)))
 
-        %{
-          "name" => unquote(name),
-          "description" => unquote(tool.description),
-          "inputSchema" => input_schema,
-          "annotations" => %{
-            "title" => title,
-            "readOnlyHint" => :read_only in hints,
-            "destructiveHint" => :non_destructive not in hints,
-            "idempotentHint" => :idempotent in hints,
-            "openWorldHint" => :closed_world not in hints
-          }
-        }
+        # Convert the input_schema map to a Schema struct
+        input_schema =
+          McpServer.Schema.new(
+            type: input_schema_map["type"],
+            properties: input_schema_map["properties"],
+            required: input_schema_map["required"]
+          )
+
+        # Create Tool.Annotations struct
+        annotations =
+          McpServer.Tool.Annotations.new(
+            title: title,
+            read_only_hint: :read_only in hints,
+            destructive_hint: :non_destructive not in hints,
+            idempotent_hint: :idempotent in hints,
+            open_world_hint: :closed_world not in hints
+          )
+
+        # Create Tool struct
+        McpServer.Tool.new(
+          name: unquote(name),
+          description: unquote(tool.description),
+          input_schema: input_schema,
+          annotations: annotations
+        )
       end
     end)
   end
@@ -1309,11 +1313,12 @@ defmodule McpServer.Router do
       quote do
         arguments = unquote(prompt_arguments(prompt.statements.arguments))
 
-        %{
-          "name" => unquote(name),
-          "description" => unquote(prompt.description),
-          "arguments" => arguments
-        }
+        # Create Prompt struct
+        McpServer.Prompt.new(
+          name: unquote(name),
+          description: unquote(prompt.description),
+          arguments: arguments
+        )
       end
     end)
   end
@@ -1326,27 +1331,14 @@ defmodule McpServer.Router do
     end)
     |> Enum.map(fn {name, resource} ->
       quote do
-        base = %{
-          "name" => unquote(name),
-          "uri" => unquote(resource.uri)
-        }
-
-        base =
-          if unquote(resource.description) != nil,
-            do: Map.put(base, "description", unquote(resource.description)),
-            else: base
-
-        base =
-          if unquote(resource.title) != nil,
-            do: Map.put(base, "title", unquote(resource.title)),
-            else: base
-
-        base =
-          if unquote(resource.mimeType) != nil,
-            do: Map.put(base, "mimeType", unquote(resource.mimeType)),
-            else: base
-
-        base
+        # Create Resource struct for static resources
+        McpServer.Resource.new(
+          name: unquote(name),
+          uri: unquote(resource.uri),
+          description: unquote(resource.description),
+          title: unquote(resource.title),
+          mime_type: unquote(resource.mimeType)
+        )
       end
     end)
   end
@@ -1359,27 +1351,14 @@ defmodule McpServer.Router do
     end)
     |> Enum.map(fn {name, resource} ->
       quote do
-        base = %{
-          "name" => unquote(name),
-          "uri" => unquote(resource.uri)
-        }
-
-        base =
-          if unquote(resource.description) != nil,
-            do: Map.put(base, "description", unquote(resource.description)),
-            else: base
-
-        base =
-          if unquote(resource.title) != nil,
-            do: Map.put(base, "title", unquote(resource.title)),
-            else: base
-
-        base =
-          if unquote(resource.mimeType) != nil,
-            do: Map.put(base, "mimeType", unquote(resource.mimeType)),
-            else: base
-
-        base
+        # Create ResourceTemplate struct for templated resources
+        McpServer.ResourceTemplate.new(
+          name: unquote(name),
+          uri_template: unquote(resource.uri),
+          description: unquote(resource.description),
+          title: unquote(resource.title),
+          mime_type: unquote(resource.mimeType)
+        )
       end
     end)
   end
@@ -1388,11 +1367,12 @@ defmodule McpServer.Router do
     arguments
     |> Enum.map(fn {name, arg} ->
       quote do
-        %{
-          "name" => unquote(name),
-          "description" => unquote(arg.description),
-          "required" => unquote(Keyword.get(arg.opts, :required, false))
-        }
+        # Create Argument struct
+        McpServer.Prompt.Argument.new(
+          name: unquote(name),
+          description: unquote(arg.description),
+          required: unquote(Keyword.get(arg.opts, :required, false))
+        )
       end
     end)
   end

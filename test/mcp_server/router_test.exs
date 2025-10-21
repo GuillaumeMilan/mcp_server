@@ -63,8 +63,8 @@ defmodule McpServer.RouterTest do
   # Resource controller for testing
   defmodule TestResourceController do
     def read_user(_conn, %{"id" => id}) do
-      %{
-        "contents" => [
+      McpServer.Resource.ReadResult.new(
+        contents: [
           content(
             "User #{id}",
             "https://example.com/users/#{id}",
@@ -73,7 +73,7 @@ defmodule McpServer.RouterTest do
             title: "User title #{id}"
           )
         ]
-      }
+      )
     end
 
     def complete_user(_conn, "id", prefix) do
@@ -83,8 +83,8 @@ defmodule McpServer.RouterTest do
     end
 
     def read_static(_conn, _opts) do
-      %{
-        "contents" => [
+      McpServer.Resource.ReadResult.new(
+        contents: [
           content(
             "static.txt",
             "https://example.com/static",
@@ -92,7 +92,7 @@ defmodule McpServer.RouterTest do
             text: "static content"
           )
         ]
-      }
+      )
     end
   end
 
@@ -154,7 +154,7 @@ defmodule McpServer.RouterTest do
 
       assert length(tools) == 3
 
-      tool_names = Enum.map(tools, & &1["name"])
+      tool_names = Enum.map(tools, & &1.name)
       assert "echo" in tool_names
       assert "greet" in tool_names
       assert "calculate" in tool_names
@@ -163,29 +163,28 @@ defmodule McpServer.RouterTest do
     test "each tool has correct structure" do
       conn = mock_conn()
       assert {:ok, tools} = TestRouter.list_tools(conn)
-      echo_tool = Enum.find(tools, &(&1["name"] == "echo"))
+      echo_tool = Enum.find(tools, &(&1.name == "echo"))
 
-      assert echo_tool["name"] == "echo"
-      assert echo_tool["description"] == "Echoes back the input"
-      # Note: The actual implementation returns JSON-formatted tools list
-      # so we don't test internal structure like controller and function
-      assert is_map(echo_tool["inputSchema"])
+      assert %McpServer.Tool{} = echo_tool
+      assert echo_tool.name == "echo"
+      assert echo_tool.description == "Echoes back the input"
+      assert %McpServer.Schema{} = echo_tool.input_schema
     end
 
     test "tool has correct input and output fields" do
       conn = mock_conn()
       assert {:ok, tools} = TestRouter.list_tools(conn)
-      echo_tool = Enum.find(tools, &(&1["name"] == "echo"))
+      echo_tool = Enum.find(tools, &(&1.name == "echo"))
 
       # Check input schema structure
-      input_schema = echo_tool["inputSchema"]
-      assert input_schema["type"] == "object"
-      assert Map.has_key?(input_schema["properties"], "message")
+      input_schema = echo_tool.input_schema
+      assert input_schema.type == "object"
+      assert Map.has_key?(input_schema.properties, "message")
 
-      message_field = input_schema["properties"]["message"]
+      message_field = input_schema.properties["message"]
       assert message_field["description"] == "The message to echo"
       assert message_field["type"] == "string"
-      assert "message" in input_schema["required"]
+      assert "message" in input_schema.required
     end
   end
 
@@ -320,7 +319,7 @@ defmodule McpServer.RouterTest do
 
       assert length(prompts) == 2
 
-      prompt_names = Enum.map(prompts, & &1["name"])
+      prompt_names = Enum.map(prompts, & &1.name)
       assert "greet" in prompt_names
       assert "system" in prompt_names
     end
@@ -328,25 +327,27 @@ defmodule McpServer.RouterTest do
     test "each prompt has correct structure" do
       conn = mock_conn()
       assert {:ok, prompts} = TestRouter.prompts_list(conn)
-      greet_prompt = Enum.find(prompts, &(&1["name"] == "greet"))
+      greet_prompt = Enum.find(prompts, &(&1.name == "greet"))
 
-      assert greet_prompt["name"] == "greet"
-      assert greet_prompt["description"] == "A friendly greeting prompt that welcomes users"
-      assert is_list(greet_prompt["arguments"])
+      assert %McpServer.Prompt{} = greet_prompt
+      assert greet_prompt.name == "greet"
+      assert greet_prompt.description == "A friendly greeting prompt that welcomes users"
+      assert is_list(greet_prompt.arguments)
     end
 
     test "prompt has correct arguments" do
       conn = mock_conn()
       assert {:ok, prompts} = TestRouter.prompts_list(conn)
-      greet_prompt = Enum.find(prompts, &(&1["name"] == "greet"))
+      greet_prompt = Enum.find(prompts, &(&1.name == "greet"))
 
-      arguments = greet_prompt["arguments"]
+      arguments = greet_prompt.arguments
       assert length(arguments) == 1
 
-      user_name_arg = Enum.find(arguments, &(&1["name"] == "user_name"))
-      assert user_name_arg["name"] == "user_name"
-      assert user_name_arg["description"] == "The name of the user to greet"
-      assert user_name_arg["required"] == true
+      user_name_arg = Enum.find(arguments, &(&1.name == "user_name"))
+      assert %McpServer.Prompt.Argument{} = user_name_arg
+      assert user_name_arg.name == "user_name"
+      assert user_name_arg.description == "The name of the user to greet"
+      assert user_name_arg.required == true
     end
   end
 
@@ -359,9 +360,18 @@ defmodule McpServer.RouterTest do
       assert length(result) == 2
 
       [first_message, second_message] = result
-      assert first_message["role"] == "user"
-      assert first_message["content"]["text"] =~ "Alice"
-      assert second_message["role"] == "assistant"
+      assert %McpServer.Prompt.Message{} = first_message
+      assert first_message.role == "user"
+      assert first_message.content.text =~ "Alice"
+      assert %McpServer.Prompt.Message{} = second_message
+      assert second_message.role == "assistant"
+
+      # Verify JSON encoding works correctly
+      json = Jason.encode!(result)
+      decoded = Jason.decode!(json)
+      assert is_list(decoded)
+      assert hd(decoded)["role"] == "user"
+      assert hd(decoded)["content"]["text"] =~ "Alice"
     end
 
     test "returns error when prompt not found" do
@@ -383,9 +393,18 @@ defmodule McpServer.RouterTest do
       conn = mock_conn()
       assert {:ok, result} = TestRouter.complete_prompt(conn, "greet", "user_name", "A")
 
-      assert result["values"] == ["Alice"]
-      assert result["total"] == 100
-      assert result["hasMore"] == true
+      # Result is now a Completion struct
+      assert %McpServer.Completion{} = result
+      assert result.values == ["Alice"]
+      assert result.total == 100
+      assert result.has_more == true
+
+      # Verify JSON encoding works correctly
+      json = Jason.encode!(result)
+      decoded = Jason.decode!(json)
+      assert decoded["values"] == ["Alice"]
+      assert decoded["total"] == 100
+      assert decoded["hasMore"] == true
     end
 
     test "returns error when prompt not found" do
@@ -407,10 +426,10 @@ defmodule McpServer.RouterTest do
     test "resources_list returns defined resources" do
       conn = mock_conn()
       assert {:ok, static_resources} = TestRouter.list_resources(conn)
-      static_names = Enum.map(static_resources, & &1["name"])
-      static_titles = Enum.map(static_resources, & &1["title"])
-      static_descriptions = Enum.map(static_resources, & &1["description"])
-      static_mime_types = Enum.map(static_resources, & &1["mimeType"])
+      static_names = Enum.map(static_resources, & &1.name)
+      static_titles = Enum.map(static_resources, & &1.title)
+      static_descriptions = Enum.map(static_resources, & &1.description)
+      static_mime_types = Enum.map(static_resources, & &1.mime_type)
 
       assert "static" in static_names
       assert "Static content" in static_titles
@@ -418,10 +437,10 @@ defmodule McpServer.RouterTest do
       assert "text/plain" in static_mime_types
 
       assert {:ok, template_resources} = TestRouter.list_templates_resource(conn)
-      template_names = Enum.map(template_resources, & &1["name"])
-      templates_titles = Enum.map(template_resources, & &1["title"])
-      templates_descriptions = Enum.map(template_resources, & &1["description"])
-      templates_mime_types = Enum.map(template_resources, & &1["mimeType"])
+      template_names = Enum.map(template_resources, & &1.name)
+      templates_titles = Enum.map(template_resources, & &1.title)
+      templates_descriptions = Enum.map(template_resources, & &1.description)
+      templates_mime_types = Enum.map(template_resources, & &1.mime_type)
 
       assert "user" in template_names
       assert "User title" in templates_titles
@@ -433,15 +452,26 @@ defmodule McpServer.RouterTest do
       conn = mock_conn()
       assert {:ok, result} = TestRouter.read_resource(conn, "user", %{"id" => "42"})
 
-      assert is_map(result)
-      assert is_list(result["contents"])
-      assert length(result["contents"]) == 1
-      content = hd(result["contents"])
-      assert content["uri"] == "https://example.com/users/42"
-      assert content["mimeType"] == "application/json"
-      assert content["text"] == "{\"id\": \"42\", \"name\": \"User 42\"}"
-      assert content["title"] == "User title 42"
-      assert content["name"] == "User 42"
+      # Result is now a ReadResult struct
+      assert %McpServer.Resource.ReadResult{} = result
+      assert is_list(result.contents)
+      assert length(result.contents) == 1
+
+      content = hd(result.contents)
+      assert %McpServer.Resource.Content{} = content
+      assert content.uri == "https://example.com/users/42"
+      assert content.mime_type == "application/json"
+      assert content.text == "{\"id\": \"42\", \"name\": \"User 42\"}"
+      assert content.title == "User title 42"
+      assert content.name == "User 42"
+
+      # Verify JSON encoding works correctly
+      json = Jason.encode!(result)
+      decoded = Jason.decode!(json)
+      assert decoded["contents"]
+      decoded_content = hd(decoded["contents"])
+      assert decoded_content["uri"] == "https://example.com/users/42"
+      assert decoded_content["mimeType"] == "application/json"
     end
 
     test "read_resource returns error for unknown resource" do
@@ -455,9 +485,18 @@ defmodule McpServer.RouterTest do
       conn = mock_conn()
       assert {:ok, result} = TestRouter.complete_resource(conn, "user", "id", "4")
 
-      assert result["values"] == ["42", "43"] or result["values"] == ["42"]
-      assert result["total"] == 100
-      assert result["hasMore"] == false
+      # Result is now a Completion struct
+      assert %McpServer.Completion{} = result
+      assert result.values == ["42", "43"] or result.values == ["42"]
+      assert result.total == 100
+      assert result.has_more == false
+
+      # Verify JSON encoding works correctly
+      json = Jason.encode!(result)
+      decoded = Jason.decode!(json)
+      assert decoded["values"]
+      assert decoded["total"] == 100
+      assert decoded["hasMore"] == false
     end
   end
 
@@ -613,13 +652,7 @@ defmodule McpServer.RouterTest do
     defmodule OnlyPromptsController do
       def get_greet_prompt(_conn, %{"user_name" => user_name}) do
         [
-          %{
-            "role" => "user",
-            "content" => %{
-              "type" => "text",
-              "text" => "Hello #{user_name}!"
-            }
-          }
+          message("user", "text", "Hello #{user_name}!")
         ]
       end
 
@@ -627,10 +660,7 @@ defmodule McpServer.RouterTest do
         names = ["Alice", "Bob", "Charlie"]
         filtered_names = Enum.filter(names, &String.starts_with?(&1, user_name_prefix))
 
-        %{
-          "values" => filtered_names,
-          "hasMore" => false
-        }
+        completion(filtered_names, has_more: false)
       end
     end
 
@@ -664,7 +694,8 @@ defmodule McpServer.RouterTest do
     test "complete_prompt works correctly" do
       conn = mock_conn()
       assert {:ok, result} = OnlyPromptsRouter.complete_prompt(conn, "greet", "user_name", "A")
-      assert result["values"] == ["Alice"]
+      assert %McpServer.Completion{} = result
+      assert result.values == ["Alice"]
     end
 
     test "call_tool returns error for unknown tool" do
