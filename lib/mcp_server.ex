@@ -110,10 +110,20 @@ defmodule McpServer do
   @callback list_tools(Conn.t()) :: {:ok, list()} | error()
   @callback call_tool(Conn.t(), String.t(), map()) :: {:ok, map()} | error()
   @callback get_prompt(Conn.t(), String.t(), map()) :: {:ok, list()} | error()
-  @callback complete_prompt(Conn.t(), String.t(), String.t()) :: list() | error()
+  @callback complete_prompt(
+              Conn.t(),
+              prompt_name :: String.t(),
+              argument_name :: String.t(),
+              prefix :: String.t()
+            ) :: list() | error()
   @callback list_resources(Conn.t()) :: {:ok, list()} | error()
   @callback read_resource(Conn.t(), String.t(), map()) :: {:ok, any()} | error()
-  @callback complete_resource(Conn.t(), String.t(), String.t()) :: list() | error()
+  @callback complete_resource(
+              Conn.t(),
+              resource_name :: String.t(),
+              argument_name :: String.t(),
+              prefix :: String.t()
+            ) :: list() | error()
 
   @optional_callbacks list_tools: 1,
                       call_tool: 3,

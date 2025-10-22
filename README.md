@@ -11,11 +11,11 @@ McpServer is an Elixir library that builds a DSL for defining Model Context Prot
 
 Version 0.4.0 introduces **typed structs** throughout the library:
 
-- ✨ **Type-safe structures**: All MCP protocol types are now proper Elixir structs with `@enforce_keys` validation
-- 🔍 **Better IDE support**: Autocomplete and inline documentation for all struct fields
-- 🛡️ **Compile-time safety**: Catch missing fields and typos at compile time, not runtime
-- 📝 **Clearer code**: Use `.field` syntax instead of `["field"]` for accessing data
-- 🔄 **Automatic JSON encoding**: All structs implement `Jason.Encoder` with proper camelCase conversion
+- **Type-safe structures**: All MCP protocol types are now proper Elixir structs with `@enforce_keys` validation
+- **Better IDE support**: Autocomplete and inline documentation for all struct fields
+- **Compile-time safety**: Catch missing fields and typos at compile time, not runtime
+- **Clearer code**: Use `.field` syntax instead of `["field"]` for accessing data
+- **Automatic JSON encoding**: All structs implement `Jason.Encoder` with proper camelCase conversion
 
 **Breaking Changes:**
 - Controller functions now require `conn` as first parameter (arity change)
@@ -211,6 +211,12 @@ The `McpServer.Prompt` module provides utility functions:
 
 - `message(role, type, content)` - Creates message structures
 - `completion(values, opts)` - Creates completion responses
+
+### Structures Reference
+
+The library provides typed structs for all MCP message types and data structures. All structs implement `Jason.Encoder` for JSON serialization.
+
+See **STRUCTURES.md** for a complete reference of all available structs and their fields.
 
 ## Usage & Testing
 

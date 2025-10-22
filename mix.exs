@@ -71,7 +71,7 @@ defmodule McpServer.MixProject do
           "QUICK_MIGRATION_REFERENCE.md",
           "CHANGELOG_v0.4.0.md"
         ],
-        "Reference": ["STRUCTURES.md"]
+        Reference: ["STRUCTURES.md"]
       ],
       source_url: @source_url,
       formatters: ["html"]
