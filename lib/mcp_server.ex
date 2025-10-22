@@ -128,8 +128,8 @@ defmodule McpServer do
   @optional_callbacks list_tools: 1,
                       call_tool: 3,
                       get_prompt: 3,
-                      complete_prompt: 3,
+                      complete_prompt: 4,
                       list_resources: 1,
                       read_resource: 3,
-                      complete_resource: 3
+                      complete_resource: 4
 end
