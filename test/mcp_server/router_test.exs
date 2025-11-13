@@ -711,4 +711,393 @@ defmodule McpServer.RouterTest do
       assert tools == []
     end
   end
+
+  describe "nested structures - objects" do
+    defmodule NestedController do
+      def create_user(_conn, %{"user" => user_data}) do
+        {:ok, %{"id" => "user_123", "data" => user_data}}
+      end
+
+      def get_config(_conn, %{"settings" => _settings}) do
+        {:ok, %{"status" => "configured"}}
+      end
+    end
+
+    defmodule NestedObjectRouter do
+      use McpServer.Router
+
+      tool "create_user", "Creates a user with nested data", NestedController, :create_user do
+        input_field("user", "User data", :object, required: true) do
+          field("name", "Full name", :string, required: true)
+          field("email", "Email address", :string, required: true)
+          field("age", "Age in years", :integer)
+
+          field("address", "Mailing address", :object, required: true) do
+            field("street", "Street address", :string)
+            field("city", "City name", :string, required: true)
+            field("country", "Country code", :string, required: true)
+            field("postal_code", "Postal code", :string)
+          end
+
+          field("preferences", "User preferences", :object) do
+            field("theme", "UI theme", :string, enum: ["light", "dark"], default: "light")
+            field("notifications", "Enable notifications", :boolean, default: true)
+          end
+        end
+
+        output_field("result", "Creation result", :object) do
+          field("id", "User ID", :string)
+          field("created", "Was created", :boolean)
+        end
+      end
+
+      tool "configure", "Configure settings", NestedController, :get_config do
+        input_field("settings", "Settings object", :object) do
+          field("database", "Database settings", :object) do
+            field("host", "Database host", :string, required: true)
+            field("port", "Database port", :integer, default: 5432)
+          end
+        end
+      end
+    end
+
+    test "generates correct nested object schema" do
+      conn = mock_conn()
+      assert {:ok, tools} = NestedObjectRouter.list_tools(conn)
+
+      create_user_tool = Enum.find(tools, &(&1.name == "create_user"))
+      assert create_user_tool != nil
+
+      input_schema = create_user_tool.input_schema
+      assert input_schema.type == "object"
+      assert "user" in input_schema.required
+
+      user_field = input_schema.properties["user"]
+      assert user_field["type"] == "object"
+      assert user_field["description"] == "User data"
+
+      # Check nested properties
+      assert is_map(user_field["properties"])
+      assert Map.has_key?(user_field["properties"], "name")
+      assert Map.has_key?(user_field["properties"], "email")
+      assert Map.has_key?(user_field["properties"], "address")
+
+      # Check required fields in nested object
+      assert "name" in user_field["required"]
+      assert "email" in user_field["required"]
+      assert "address" in user_field["required"]
+
+      # Check deeply nested address object
+      address_field = user_field["properties"]["address"]
+      assert address_field["type"] == "object"
+      assert is_map(address_field["properties"])
+      assert Map.has_key?(address_field["properties"], "city")
+      assert Map.has_key?(address_field["properties"], "country")
+      assert "city" in address_field["required"]
+      assert "country" in address_field["required"]
+
+      # Check preferences with enum and default
+      preferences_field = user_field["properties"]["preferences"]
+      assert preferences_field["type"] == "object"
+      theme_field = preferences_field["properties"]["theme"]
+      assert theme_field["enum"] == ["light", "dark"]
+      assert theme_field["default"] == "light"
+    end
+
+    test "calls tool with nested data successfully" do
+      conn = mock_conn()
+
+      args = %{
+        "user" => %{
+          "name" => "John Doe",
+          "email" => "john@example.com",
+          "age" => 30,
+          "address" => %{
+            "city" => "New York",
+            "country" => "US"
+          }
+        }
+      }
+
+      assert {:ok, result} = NestedObjectRouter.call_tool(conn, "create_user", args)
+      assert result["id"] == "user_123"
+      assert result["data"]["name"] == "John Doe"
+    end
+
+    test "multi-level nesting works correctly" do
+      conn = mock_conn()
+      assert {:ok, tools} = NestedObjectRouter.list_tools(conn)
+
+      configure_tool = Enum.find(tools, &(&1.name == "configure"))
+      input_schema = configure_tool.input_schema
+
+      settings_field = input_schema.properties["settings"]
+      database_field = settings_field["properties"]["database"]
+
+      assert database_field["type"] == "object"
+      assert Map.has_key?(database_field["properties"], "host")
+      assert Map.has_key?(database_field["properties"], "port")
+      assert "host" in database_field["required"]
+
+      port_field = database_field["properties"]["port"]
+      assert port_field["default"] == 5432
+    end
+  end
+
+  describe "nested structures - arrays" do
+    defmodule ArrayController do
+      def process_tags(_conn, %{"tags" => tags}) do
+        {:ok, %{"count" => length(tags)}}
+      end
+
+      def batch_create(_conn, %{"users" => users}) do
+        {:ok, %{"created" => length(users)}}
+      end
+
+      def create_project(_conn, %{"project" => _project}) do
+        {:ok, %{"project_id" => "proj_123"}}
+      end
+    end
+
+    defmodule NestedArrayRouter do
+      use McpServer.Router
+
+      # Simple array with primitive items
+      tool "process_tags", "Process tags", ArrayController, :process_tags do
+        input_field("tags", "List of tags", :array, required: true, items: :string)
+        input_field("scores", "Score values", :array, items: :number)
+      end
+
+      # Array with complex object items
+      tool "batch_create", "Batch create users", ArrayController, :batch_create do
+        input_field("users", "List of users", :array, required: true) do
+          items :object do
+            field("name", "User name", :string, required: true)
+            field("email", "Email", :string, required: true)
+            field("roles", "User roles", :array, items: :string)
+          end
+        end
+      end
+
+      # Complex nested structure
+      tool "create_project", "Creates a project", ArrayController, :create_project do
+        input_field("project", "Project data", :object, required: true) do
+          field("name", "Project name", :string, required: true)
+
+          field("team", "Team members", :array) do
+            items :object do
+              field("user_id", "User ID", :string, required: true)
+              field("role", "Role", :string, enum: ["admin", "developer", "viewer"])
+              field("permissions", "Permissions", :array, items: :string)
+            end
+          end
+
+          field("metadata", "Metadata", :object) do
+            field("tags", "Tags", :array, items: :string)
+          end
+        end
+      end
+    end
+
+    test "generates correct schema for simple array items" do
+      conn = mock_conn()
+      assert {:ok, tools} = NestedArrayRouter.list_tools(conn)
+
+      process_tool = Enum.find(tools, &(&1.name == "process_tags"))
+      input_schema = process_tool.input_schema
+
+      tags_field = input_schema.properties["tags"]
+      assert tags_field["type"] == "array"
+      assert tags_field["items"]["type"] == "string"
+
+      scores_field = input_schema.properties["scores"]
+      assert scores_field["type"] == "array"
+      assert scores_field["items"]["type"] == "number"
+    end
+
+    test "generates correct schema for array with object items" do
+      conn = mock_conn()
+      assert {:ok, tools} = NestedArrayRouter.list_tools(conn)
+
+      batch_tool = Enum.find(tools, &(&1.name == "batch_create"))
+      input_schema = batch_tool.input_schema
+
+      users_field = input_schema.properties["users"]
+      assert users_field["type"] == "array"
+
+      items_schema = users_field["items"]
+      assert items_schema["type"] == "object"
+      assert Map.has_key?(items_schema["properties"], "name")
+      assert Map.has_key?(items_schema["properties"], "email")
+      assert Map.has_key?(items_schema["properties"], "roles")
+
+      assert "name" in items_schema["required"]
+      assert "email" in items_schema["required"]
+
+      # Check nested array in items
+      roles_field = items_schema["properties"]["roles"]
+      assert roles_field["type"] == "array"
+      assert roles_field["items"]["type"] == "string"
+    end
+
+    test "calls tool with array data successfully" do
+      conn = mock_conn()
+
+      args = %{
+        "tags" => ["elixir", "mcp", "server"]
+      }
+
+      assert {:ok, result} = NestedArrayRouter.call_tool(conn, "process_tags", args)
+      assert result["count"] == 3
+    end
+
+    test "calls tool with complex array items" do
+      conn = mock_conn()
+
+      args = %{
+        "users" => [
+          %{"name" => "Alice", "email" => "alice@example.com", "roles" => ["admin"]},
+          %{"name" => "Bob", "email" => "bob@example.com", "roles" => ["developer", "viewer"]}
+        ]
+      }
+
+      assert {:ok, result} = NestedArrayRouter.call_tool(conn, "batch_create", args)
+      assert result["created"] == 2
+    end
+
+    test "complex nested structure with arrays and objects" do
+      conn = mock_conn()
+      assert {:ok, tools} = NestedArrayRouter.list_tools(conn)
+
+      project_tool = Enum.find(tools, &(&1.name == "create_project"))
+      input_schema = project_tool.input_schema
+
+      project_field = input_schema.properties["project"]
+      team_field = project_field["properties"]["team"]
+
+      assert team_field["type"] == "array"
+      team_items = team_field["items"]
+      assert team_items["type"] == "object"
+      assert "user_id" in team_items["required"]
+
+      role_field = team_items["properties"]["role"]
+      assert role_field["enum"] == ["admin", "developer", "viewer"]
+
+      permissions_field = team_items["properties"]["permissions"]
+      assert permissions_field["type"] == "array"
+      assert permissions_field["items"]["type"] == "string"
+
+      # Check metadata.tags
+      metadata_field = project_field["properties"]["metadata"]
+      tags_field = metadata_field["properties"]["tags"]
+      assert tags_field["type"] == "array"
+      assert tags_field["items"]["type"] == "string"
+    end
+  end
+
+  describe "backward compatibility" do
+    defmodule BackwardCompatController do
+      def simple_tool(_conn, %{"name" => name}), do: {:ok, name}
+    end
+
+    defmodule BackwardCompatRouter do
+      use McpServer.Router
+
+      # Old-style simple field definitions should still work
+      tool "simple", "Simple tool", BackwardCompatController, :simple_tool do
+        input_field("name", "Name", :string, required: true)
+        input_field("age", "Age", :integer)
+        input_field("active", "Is active", :boolean, default: true)
+        output_field("result", "Result", :string)
+      end
+    end
+
+    test "old-style field definitions still work" do
+      conn = mock_conn()
+      assert {:ok, tools} = BackwardCompatRouter.list_tools(conn)
+
+      simple_tool = Enum.find(tools, &(&1.name == "simple"))
+      assert simple_tool != nil
+
+      input_schema = simple_tool.input_schema
+      assert input_schema.type == "object"
+
+      name_field = input_schema.properties["name"]
+      assert name_field["type"] == "string"
+      assert name_field["description"] == "Name"
+      assert "name" in input_schema.required
+
+      age_field = input_schema.properties["age"]
+      assert age_field["type"] == "integer"
+
+      active_field = input_schema.properties["active"]
+      assert active_field["type"] == "boolean"
+      assert active_field["default"] == true
+    end
+
+    test "old-style tools can be called" do
+      conn = mock_conn()
+
+      assert {:ok, result} = BackwardCompatRouter.call_tool(conn, "simple", %{"name" => "test"})
+      assert result == "test"
+    end
+  end
+
+  describe "nested field validation" do
+    test "raises error when duplicate nested field is defined" do
+      assert_raise SyntaxError, ~r/field "name" duplicated/, fn ->
+        defmodule DuplicateNestedField.Controller do
+          def test(_conn, _args), do: {:ok, "test"}
+        end
+
+        defmodule DuplicateNestedField.Router do
+          use McpServer.Router
+
+          tool "test", "Test", DuplicateNestedField.Controller, :test do
+            input_field("user", "User", :object) do
+              field("name", "First name", :string)
+              field("name", "Second name", :string)
+            end
+          end
+        end
+      end
+    end
+
+    test "raises error for unexpected statement in nested field" do
+      assert_raise SyntaxError, ~r/Unexpected statement in nested field definition/, fn ->
+        defmodule InvalidNestedStatement.Controller do
+          def test(_conn, _args), do: {:ok, "test"}
+        end
+
+        defmodule InvalidNestedStatement.Router do
+          use McpServer.Router
+
+          tool "test", "Test", InvalidNestedStatement.Controller, :test do
+            input_field("user", "User", :object) do
+              field("name", "Name", :string)
+              invalid_macro("bad", "statement")
+            end
+          end
+        end
+      end
+    end
+
+    test "raises error when items missing from array block" do
+      assert_raise SyntaxError, ~r/Expected 'items' definition in array field/, fn ->
+        defmodule MissingItems.Controller do
+          def test(_conn, _args), do: {:ok, "test"}
+        end
+
+        defmodule MissingItems.Router do
+          use McpServer.Router
+
+          tool "test", "Test", MissingItems.Controller, :test do
+            input_field("data", "Data", :array) do
+              field("name", "Name", :string)
+            end
+          end
+        end
+      end
+    end
+  end
 end

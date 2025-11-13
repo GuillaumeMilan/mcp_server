@@ -91,14 +91,82 @@ defmodule McpServer.Router do
   - `:integer` - Whole numbers
   - `:number` - Numeric values (integers and floats)
   - `:boolean` - True/false values
-  - `:array` - Lists of values
-  - `:object` - Nested structures
+  - `:array` - Lists of values (supports nested items)
+  - `:object` - Nested structures (supports nested properties)
 
   ### Field Options
 
   - `required: true/false` - Whether the field is mandatory (default: false)
   - `enum: [...]` - Restrict values to a specific set
   - `default: value` - Default value if not provided
+  - `items: :type` - For arrays, specify the type of items (e.g., `items: :string`)
+
+  ### Nested Structures
+
+  Tools support deeply nested object and array schemas using do-blocks:
+
+  #### Nested Objects
+
+      tool "create_user", "Creates a user", UserController, :create do
+        input_field("user", "User data", :object, required: true) do
+          field("name", "Full name", :string, required: true)
+          field("email", "Email address", :string, required: true)
+
+          field("address", "Mailing address", :object) do
+            field("street", "Street address", :string)
+            field("city", "City", :string, required: true)
+            field("country", "Country code", :string, required: true)
+          end
+        end
+      end
+
+  #### Arrays with Simple Items
+
+      tool "process_tags", "Process tags", TagController, :process do
+        input_field("tags", "List of tags", :array, required: true, items: :string)
+        input_field("scores", "Score values", :array, items: :number)
+      end
+
+  #### Arrays with Complex Items
+
+      tool "batch_create", "Batch create users", UserController, :batch do
+        input_field("users", "List of users", :array, required: true) do
+          items :object do
+            field("name", "User name", :string, required: true)
+            field("email", "Email", :string, required: true)
+            field("roles", "User roles", :array, items: :string)
+          end
+        end
+      end
+
+  #### Complex Nested Example
+
+      tool "create_project", "Creates a project", ProjectController, :create do
+        input_field("project", "Project data", :object, required: true) do
+          field("name", "Project name", :string, required: true)
+
+          field("owner", "Project owner", :object, required: true) do
+            field("id", "User ID", :string, required: true)
+            field("name", "User name", :string)
+          end
+
+          field("team", "Team members", :array) do
+            items :object do
+              field("user_id", "User ID", :string, required: true)
+              field("role", "Role", :string, enum: ["admin", "developer", "viewer"])
+              field("permissions", "Permission flags", :array, items: :string)
+            end
+          end
+
+          field("metadata", "Metadata", :object) do
+            field("tags", "Tags", :array, items: :string)
+            field("settings", "Settings", :object) do
+              field("private", "Is private", :boolean, default: false)
+            end
+          end
+        end
+      end
+
 
   ### Tool Hints
 
@@ -116,6 +184,7 @@ defmodule McpServer.Router do
   - `:idempotent` - Tool can be called repeatedly with same result
   - `:closed_world` - Tool only works with known/predefined data
 
+
   ### Controller Implementation
 
       defmodule MyApp.Calculator do
@@ -130,6 +199,24 @@ defmodule McpServer.Router do
             "divide" when b != 0 -> a / b
             "divide" -> {:error, "Division by zero"}
           end
+        end
+      end
+
+      # Controller for nested structures
+      defmodule MyApp.UserController do
+        def create(conn, %{"user" => user_data}) do
+          # user_data is a nested map matching your schema
+          %{
+            "name" => name,
+            "email" => email,
+            "address" => %{
+              "city" => city,
+              "country" => country
+            }
+          } = user_data
+
+          # Your creation logic here
+          {:ok, %{"id" => "user_123", "created" => true}}
         end
       end
 
@@ -333,7 +420,20 @@ defmodule McpServer.Router do
 
   defmacro __using__(_opts) do
     quote do
-      import McpServer.Router, only: [tool: 5, tool: 6, prompt: 3, resource: 2, resource: 3]
+      import McpServer.Router,
+        only: [
+          tool: 5,
+          tool: 6,
+          prompt: 3,
+          resource: 2,
+          resource: 3,
+          field: 3,
+          field: 4,
+          field: 5,
+          items: 2,
+          items: 3
+        ]
+
       @behaviour McpServer
       @before_compile McpServer.Router
     end
@@ -393,6 +493,136 @@ defmodule McpServer.Router do
 
   defmacro resource(name, uri) do
     define_resource(name, uri, nil, __CALLER__)
+  end
+
+  @doc """
+  Defines a nested field within an object or array block.
+
+  ## Examples
+      # Simple nested field
+      field("name", "User name", :string, required: true)
+
+      # Nested object
+      field("address", "Address", :object) do
+        field("city", "City", :string)
+        field("country", "Country", :string)
+      end
+
+      # Nested array with simple items
+      field("tags", "Tags", :array, items: :string)
+
+      # Nested array with complex items
+      field("contacts", "Contact list", :array) do
+        items :object do
+          field("type", "Contact type", :string)
+          field("value", "Contact value", :string)
+        end
+      end
+  """
+  defmacro field(name, description, type) do
+    define_nested_field(name, description, type, [], nil, __CALLER__)
+  end
+
+  defmacro field(name, description, type, opts) when is_list(opts) do
+    define_nested_field(name, description, type, opts, nil, __CALLER__)
+  end
+
+  defmacro field(name, description, type, do: block) do
+    define_nested_field(name, description, type, [], block, __CALLER__)
+  end
+
+  defmacro field(name, description, type, opts, do: block) do
+    define_nested_field(name, description, type, opts, block, __CALLER__)
+  end
+
+  @doc """
+  Defines the item schema for an array field.
+
+  ## Examples
+      # Simple item type
+      items :string
+
+      # Complex item type with nested structure
+      items :object do
+        field("id", "Item ID", :string)
+        field("value", "Item value", :number)
+      end
+
+      # Nested array items
+      items :array, items: :string
+  """
+  defmacro items(type) do
+    define_array_items(type, [], nil, __CALLER__)
+  end
+
+  defmacro items(type, opts) when is_list(opts) do
+    define_array_items(type, opts, nil, __CALLER__)
+  end
+
+  defmacro items(type, do: block) do
+    define_array_items(type, [], block, __CALLER__)
+  end
+
+  defmacro items(type, opts, do: block) do
+    define_array_items(type, opts, block, __CALLER__)
+  end
+
+  defp define_nested_field(name, description, type, opts, block, _caller) do
+    # Return a quoted tuple that will be collected by extract_nested_fields
+    schema =
+      case {type, block, opts[:items]} do
+        # Object with nested fields
+        {:object, {:__block__, _, _}, _} ->
+          {:nested_fields, block}
+
+        {:object, {_, _, _} = single_statement, _} ->
+          {:nested_fields, {:__block__, [], [single_statement]}}
+
+        # Array with items option (simple type)
+        {:array, nil, items_type} when is_atom(items_type) ->
+          {:items, %{type: items_type, schema: nil}}
+
+        # Array with do block
+        {:array, {:__block__, _, _}, _} ->
+          {:items_block, block}
+
+        {:array, {_, _, _} = single_statement, _} ->
+          {:items_block, {:__block__, [], [single_statement]}}
+
+        # Simple field (no nesting)
+        _ ->
+          nil
+      end
+
+    quote do
+      {unquote(name), unquote(description), unquote(type), unquote(opts),
+       unquote(Macro.escape(schema))}
+    end
+  end
+
+  defp define_array_items(type, opts, block, _caller) do
+    # Return a quoted tuple representing the items schema
+    schema =
+      case {type, block, opts[:items]} do
+        # Object items with nested fields
+        {:object, {:__block__, _, _}, _} ->
+          {:nested_fields, block}
+
+        {:object, {_, _, _} = single_statement, _} ->
+          {:nested_fields, {:__block__, [], [single_statement]}}
+
+        # Nested array items
+        {:array, nil, items_type} when is_atom(items_type) ->
+          {:items, %{type: items_type, schema: nil}}
+
+        # Simple type
+        _ ->
+          nil
+      end
+
+    quote do
+      {:items_def, unquote(type), unquote(opts), unquote(Macro.escape(schema))}
+    end
   end
 
   defp define_tool(name, description, controller, function, opts, block, caller) do
@@ -853,7 +1083,7 @@ defmodule McpServer.Router do
          {:input_field, _, args},
          ctx
        ) do
-    [name, description, type, opts] = parse_field_args(:input_field, args)
+    {name, description, type, opts, block} = parse_field_args_with_block(:input_field, args)
 
     input_fields = Map.get(statements, :input_fields, %{})
 
@@ -866,8 +1096,16 @@ defmodule McpServer.Router do
       }
     end
 
+    # Process nested schema if present
+    schema = process_field_schema(type, opts, block, ctx)
+
     new_input_fields =
-      Map.put(input_fields, name, %{description: description, type: type, opts: opts})
+      Map.put(input_fields, name, %{
+        description: description,
+        type: type,
+        opts: opts,
+        schema: schema
+      })
 
     Map.put(statements, :input_fields, new_input_fields)
   end
@@ -877,7 +1115,7 @@ defmodule McpServer.Router do
          {:output_field, _, args},
          ctx
        ) do
-    [name, description, type, opts] = parse_field_args(:output_field, args)
+    {name, description, type, opts, block} = parse_field_args_with_block(:output_field, args)
     output_fields = Map.get(statements, :output_fields, %{})
 
     if Map.has_key?(output_fields, name) do
@@ -889,8 +1127,16 @@ defmodule McpServer.Router do
       }
     end
 
+    # Process nested schema if present
+    schema = process_field_schema(type, opts, block, ctx)
+
     new_output_fields =
-      Map.put(output_fields, name, %{description: description, type: type, opts: opts})
+      Map.put(output_fields, name, %{
+        description: description,
+        type: type,
+        opts: opts,
+        schema: schema
+      })
 
     Map.put(statements, :output_fields, new_output_fields)
   end
@@ -903,19 +1149,31 @@ defmodule McpServer.Router do
     }
   end
 
-  defp parse_field_args(function, args) do
+  # Parse field args with potential do-block support
+  defp parse_field_args_with_block(function, args) do
     case args do
-      [name, description, type, opts] ->
-        [name, description, type, opts]
+      # input_field("name", "desc", :type, opts, do: block)
+      [name, description, type, opts, [do: block]] ->
+        {name, description, type, opts, block}
 
+      # input_field("name", "desc", :type, do: block)
+      [name, description, type, [do: block]] ->
+        {name, description, type, [], block}
+
+      # input_field("name", "desc", :type, opts)
+      [name, description, type, opts] when is_list(opts) ->
+        {name, description, type, opts, nil}
+
+      # input_field("name", "desc", :type)
       [name, description, type] ->
-        [name, description, type, []]
+        {name, description, type, [], nil}
 
       args ->
         reason = """
         Did you mean:
          - #{function}/3
          - #{function}/4
+         - #{function}/5 (with do block)
         """
 
         arity = length(args)
@@ -927,6 +1185,157 @@ defmodule McpServer.Router do
           reason: reason
         }
     end
+  end
+
+  # Process field schema based on type and block/options
+  defp process_field_schema(type, opts, block, ctx) do
+    cond do
+      # Object with nested fields
+      type == :object && block != nil ->
+        {:nested_object, extract_nested_fields(block, ctx)}
+
+      # Array with do block (complex items)
+      type == :array && block != nil ->
+        {:array_with_schema, extract_array_items(block, ctx)}
+
+      # Array with simple items option
+      type == :array && opts[:items] != nil ->
+        {:array_simple, opts[:items]}
+
+      # No nesting
+      true ->
+        nil
+    end
+  end
+
+  # Extract nested fields from a do block
+  defp extract_nested_fields(block, ctx) do
+    do_extract_nested_fields(%{}, block, ctx)
+  end
+
+  defp do_extract_nested_fields(fields, {:__block__, _, content}, ctx) do
+    Enum.reduce(content, fields, fn statement, acc ->
+      do_extract_nested_fields(acc, statement, ctx)
+    end)
+  end
+
+  # Handle field/3, field/4, field/5 calls
+  defp do_extract_nested_fields(
+         fields,
+         {:field, _, [name, description, type]},
+         ctx
+       ) do
+    add_nested_field(fields, name, description, type, [], nil, ctx)
+  end
+
+  # field/4 with do-block: field("name", "desc", :type, do: block)
+  defp do_extract_nested_fields(
+         fields,
+         {:field, _, [name, description, type, [do: block]]},
+         ctx
+       ) do
+    add_nested_field(fields, name, description, type, [], block, ctx)
+  end
+
+  # field/4 with opts: field("name", "desc", :type, required: true)
+  defp do_extract_nested_fields(
+         fields,
+         {:field, _, [name, description, type, opts]},
+         ctx
+       ) do
+    add_nested_field(fields, name, description, type, opts, nil, ctx)
+  end
+
+  # field/5 with opts and do-block: field("name", "desc", :type, opts, do: block)
+  defp do_extract_nested_fields(
+         fields,
+         {:field, _, [name, description, type, opts, [do: block]]},
+         ctx
+       ) do
+    add_nested_field(fields, name, description, type, opts, block, ctx)
+  end
+
+  defp do_extract_nested_fields(_fields, other, %{caller: caller}) do
+    raise %SyntaxError{
+      description: "Unexpected statement in nested field definition: #{Macro.to_string(other)}",
+      file: caller.file,
+      line: caller.line
+    }
+  end
+
+  defp add_nested_field(fields, name, description, type, opts, block, ctx) do
+    if Map.has_key?(fields, name) do
+      raise %SyntaxError{
+        description: "field #{Macro.to_string(name)} duplicated",
+        file: ctx.caller.file,
+        line: ctx.caller.line
+      }
+    end
+
+    schema = process_field_schema(type, opts, block, ctx)
+
+    Map.put(fields, name, %{
+      description: description,
+      type: type,
+      opts: opts,
+      schema: schema
+    })
+  end
+
+  # Extract array items schema from a do block
+  defp extract_array_items(block, ctx) do
+    do_extract_array_items(block, ctx)
+  end
+
+  defp do_extract_array_items({:__block__, _, [items_statement | _rest]}, ctx) do
+    do_extract_array_items(items_statement, ctx)
+  end
+
+  # Handle items/1, items/2, items/3 calls
+  defp do_extract_array_items({:items, _, [type]}, _ctx) do
+    %{type: type, schema: nil}
+  end
+
+  # items/2 with do-block: items :object do ... end
+  defp do_extract_array_items({:items, _, [type, [do: block]]}, ctx) do
+    schema =
+      case type do
+        :object -> {:nested_object, extract_nested_fields(block, ctx)}
+        :array -> {:array_with_schema, extract_array_items(block, ctx)}
+        _ -> nil
+      end
+
+    %{type: type, schema: schema}
+  end
+
+  # items/2 with opts: items :array, items: :string
+  defp do_extract_array_items({:items, _, [type, opts]}, _ctx) do
+    # For nested arrays: items :array, items: :string
+    if opts[:items] do
+      %{type: type, schema: {:array_simple, opts[:items]}}
+    else
+      %{type: type, schema: nil}
+    end
+  end
+
+  # items/3 with opts and do-block
+  defp do_extract_array_items({:items, _, [type, opts, [do: block]]}, ctx) do
+    schema =
+      case type do
+        :object -> {:nested_object, extract_nested_fields(block, ctx)}
+        :array -> {:array_with_schema, extract_array_items(block, ctx)}
+        _ -> nil
+      end
+
+    %{type: type, opts: opts, schema: schema}
+  end
+
+  defp do_extract_array_items(other, %{caller: caller}) do
+    raise %SyntaxError{
+      description: "Expected 'items' definition in array field, got: #{Macro.to_string(other)}",
+      file: caller.file,
+      line: caller.line
+    }
   end
 
   defmacro __before_compile__(env) do
@@ -1205,13 +1614,74 @@ defmodule McpServer.Router do
   def format_field(field) do
     enum = field.opts[:enum]
 
-    %{
+    base_schema = %{
       "type" => "#{field.type}",
       "description" => field.description,
       "enum" => enum,
       "default" => field.opts[:default]
     }
-    |> Map.reject(fn {_, v} -> is_nil(v) end)
+
+    # Add nested schema if present
+    schema_with_nesting =
+      case field[:schema] do
+        # Nested object with properties
+        {:nested_object, nested_fields} ->
+          nested_schema = format_schema(nested_fields)
+
+          base_schema
+          |> Map.put("properties", nested_schema["properties"])
+          |> Map.put("required", nested_schema["required"])
+
+        # Array with simple item type
+        {:array_simple, item_type} ->
+          Map.put(base_schema, "items", %{"type" => "#{item_type}"})
+
+        # Array with complex item schema
+        {:array_with_schema, items_schema} ->
+          items = format_array_items(items_schema)
+          Map.put(base_schema, "items", items)
+
+        # No nesting
+        _ ->
+          base_schema
+      end
+
+    # Remove nil values but keep empty lists/maps (they're valid in JSON schema)
+    schema_with_nesting
+    |> Enum.reject(fn {_, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  @doc false
+  # Format array items schema
+  defp format_array_items(%{type: type, schema: nil}) do
+    %{"type" => "#{type}"}
+  end
+
+  defp format_array_items(%{type: type, schema: {:nested_object, nested_fields}}) do
+    nested_schema = format_schema(nested_fields)
+
+    %{
+      "type" => "#{type}",
+      "properties" => nested_schema["properties"],
+      "required" => nested_schema["required"]
+    }
+    |> Enum.reject(fn {_, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp format_array_items(%{type: type, schema: {:array_simple, item_type}}) do
+    %{
+      "type" => "#{type}",
+      "items" => %{"type" => "#{item_type}"}
+    }
+  end
+
+  defp format_array_items(%{type: type, schema: {:array_with_schema, items_schema}}) do
+    %{
+      "type" => "#{type}",
+      "items" => format_array_items(items_schema)
+    }
   end
 
   @doc false
@@ -1300,7 +1770,8 @@ defmodule McpServer.Router do
           %{
             description: unquote(field.description),
             type: unquote(field.type),
-            opts: unquote(field.opts)
+            opts: unquote(field.opts),
+            schema: unquote(Macro.escape(field[:schema]))
           }
         }
       end
