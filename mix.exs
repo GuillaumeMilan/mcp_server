@@ -60,6 +60,7 @@ defmodule McpServer.MixProject do
       main: "readme",
       extras: [
         "README.md",
+        "TESTING.md",
         "MIGRATION_GUIDE.md",
         "STRUCTURES.md",
         "CHANGELOG_v0.4.0.md",
@@ -67,12 +68,38 @@ defmodule McpServer.MixProject do
       ],
       groups_for_extras: [
         "Getting Started": ["README.md"],
+        Guides: ["TESTING.md"],
         "Migration & Upgrade": [
           "MIGRATION_GUIDE.md",
           "QUICK_MIGRATION_REFERENCE.md",
           "CHANGELOG_v0.4.0.md"
         ],
         Reference: ["STRUCTURES.md"]
+      ],
+      groups_for_modules: [
+        "Core DSL": [
+          McpServer.Router,
+          McpServer.Controller
+        ],
+        "Data Structures": [
+          McpServer.Conn,
+          McpServer.Tool,
+          McpServer.Prompt,
+          McpServer.Resource,
+          McpServer.ResourceTemplate,
+          McpServer.Completion,
+          McpServer.Schema
+        ],
+        Transport: [
+          McpServer.HttpPlug,
+          McpServer.JsonRpc
+        ],
+        Testing: [
+          McpServer.Test
+        ],
+        Observability: [
+          McpServer.Telemetry
+        ]
       ],
       source_url: @source_url,
       formatters: ["html"]
