@@ -48,6 +48,7 @@ defmodule McpServer.MixProject do
       {:bandit, "~> 1.0"},
       # TODO give the ability to use custom JSON encoder / decoder to the user
       {:jason, "~> 1.4"},
+      {:telemetry, "~> 1.0"},
 
       # Documentation
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
