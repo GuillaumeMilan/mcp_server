@@ -17,6 +17,7 @@ defmodule McpServer.ToolTest do
       assert tool.description == "Echoes back the input"
       assert tool.input_schema == %{"type" => "object"}
       assert tool.annotations == nil
+      assert tool.callback == nil
     end
 
     test "creates a tool with annotations" do
@@ -30,6 +31,34 @@ defmodule McpServer.ToolTest do
           annotations: annotations
         )
 
+      assert tool.annotations == annotations
+    end
+
+    test "creates a tool with callback information" do
+      tool =
+        Tool.new(
+          name: "echo",
+          description: "Echoes back the input",
+          input_schema: %{"type" => "object"},
+          callback: {MyController, :echo}
+        )
+
+      assert tool.callback == {MyController, :echo}
+    end
+
+    test "creates a tool with callback and annotations" do
+      annotations = Annotations.new(title: "Echo Tool")
+
+      tool =
+        Tool.new(
+          name: "echo",
+          description: "Echoes back the input",
+          input_schema: %{"type" => "object"},
+          annotations: annotations,
+          callback: {MyController, :echo}
+        )
+
+      assert tool.callback == {MyController, :echo}
       assert tool.annotations == annotations
     end
 
@@ -89,6 +118,7 @@ defmodule McpServer.ToolTest do
       assert decoded["description"] == "Echoes back the input"
       assert decoded["inputSchema"] == %{"type" => "object"}
       refute Map.has_key?(decoded, "annotations")
+      refute Map.has_key?(decoded, "callback")
     end
 
     test "encodes tool with annotations" do
@@ -108,6 +138,51 @@ defmodule McpServer.ToolTest do
       assert decoded["name"] == "echo"
       assert decoded["annotations"]["title"] == "Echo Tool"
       assert decoded["annotations"]["readOnlyHint"] == true
+    end
+
+    test "encodes tool with callback but does NOT include callback in JSON" do
+      tool =
+        Tool.new(
+          name: "echo",
+          description: "Echoes back the input",
+          input_schema: %{"type" => "object"},
+          callback: {MyController, :echo}
+        )
+
+      json = Jason.encode!(tool)
+      decoded = Jason.decode!(json)
+
+      # Verify callback is in the struct but NOT in JSON
+      assert tool.callback == {MyController, :echo}
+      refute Map.has_key?(decoded, "callback")
+      assert decoded["name"] == "echo"
+      assert decoded["description"] == "Echoes back the input"
+    end
+
+    test "encodes tool with callback and annotations but only includes annotations in JSON" do
+      annotations = Annotations.new(title: "Calculator", idempotent_hint: true)
+
+      tool =
+        Tool.new(
+          name: "calculate",
+          description: "Performs calculations",
+          input_schema: %{"type" => "object"},
+          annotations: annotations,
+          callback: {MathController, :calculate}
+        )
+
+      json = Jason.encode!(tool)
+      decoded = Jason.decode!(json)
+
+      # Verify callback is stored internally
+      assert tool.callback == {MathController, :calculate}
+
+      # Verify annotations appear in JSON
+      assert decoded["annotations"]["title"] == "Calculator"
+      assert decoded["annotations"]["idempotentHint"] == true
+
+      # Verify callback is NOT in JSON
+      refute Map.has_key?(decoded, "callback")
     end
 
     test "encodes tool with complex input schema" do

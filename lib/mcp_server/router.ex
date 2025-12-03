@@ -1602,86 +1602,99 @@ defmodule McpServer.Router do
         {name, format_field(field)}
       end)
 
-    %{
-      "type" => "object",
-      "properties" => properties,
-      "required" => required_fields
-    }
+    required_fields = if Enum.empty?(required_fields), do: nil, else: required_fields
+
+    McpServer.Schema.new(
+      type: "object",
+      properties: properties,
+      required: required_fields
+    )
   end
 
   @doc false
   # TODO put in a dedicated module
   def format_field(field) do
     enum = field.opts[:enum]
-
-    base_schema = %{
-      "type" => "#{field.type}",
-      "description" => field.description,
-      "enum" => enum,
-      "default" => field.opts[:default]
-    }
+    default = field.opts[:default]
 
     # Add nested schema if present
-    schema_with_nesting =
-      case field[:schema] do
-        # Nested object with properties
-        {:nested_object, nested_fields} ->
-          nested_schema = format_schema(nested_fields)
+    case field[:schema] do
+      # Nested object with properties
+      {:nested_object, nested_fields} ->
+        nested_schema = format_schema(nested_fields)
 
-          base_schema
-          |> Map.put("properties", nested_schema["properties"])
-          |> Map.put("required", nested_schema["required"])
+        McpServer.Schema.new(
+          type: "#{field.type}",
+          description: field.description,
+          properties: nested_schema.properties,
+          required: nested_schema.required,
+          enum: enum,
+          default: default
+        )
 
-        # Array with simple item type
-        {:array_simple, item_type} ->
-          Map.put(base_schema, "items", %{"type" => "#{item_type}"})
+      # Array with simple item type
+      {:array_simple, item_type} ->
+        items_schema = McpServer.Schema.new(type: "#{item_type}")
 
-        # Array with complex item schema
-        {:array_with_schema, items_schema} ->
-          items = format_array_items(items_schema)
-          Map.put(base_schema, "items", items)
+        McpServer.Schema.new(
+          type: "#{field.type}",
+          description: field.description,
+          items: items_schema,
+          default: default
+        )
 
-        # No nesting
-        _ ->
-          base_schema
-      end
+      # Array with complex item schema
+      {:array_with_schema, items_schema} ->
+        items = format_array_items(items_schema)
 
-    # Remove nil values but keep empty lists/maps (they're valid in JSON schema)
-    schema_with_nesting
-    |> Enum.reject(fn {_, v} -> is_nil(v) end)
-    |> Map.new()
+        McpServer.Schema.new(
+          type: "#{field.type}",
+          description: field.description,
+          items: items,
+          default: default
+        )
+
+      # No nesting - simple field
+      _ ->
+        McpServer.Schema.new(
+          [type: "#{field.type}", description: field.description, enum: enum, default: default]
+          |> Enum.reject(fn {_, v} -> is_nil(v) end)
+        )
+    end
   end
 
   @doc false
-  # Format array items schema
+  # Format array items schema - returns McpServer.Schema structs
   defp format_array_items(%{type: type, schema: nil}) do
-    %{"type" => "#{type}"}
+    McpServer.Schema.new(type: "#{type}")
   end
 
   defp format_array_items(%{type: type, schema: {:nested_object, nested_fields}}) do
     nested_schema = format_schema(nested_fields)
 
-    %{
-      "type" => "#{type}",
-      "properties" => nested_schema["properties"],
-      "required" => nested_schema["required"]
-    }
-    |> Enum.reject(fn {_, v} -> is_nil(v) end)
-    |> Map.new()
+    McpServer.Schema.new(
+      type: "#{type}",
+      properties: nested_schema.properties,
+      required: nested_schema.required
+    )
   end
 
   defp format_array_items(%{type: type, schema: {:array_simple, item_type}}) do
-    %{
-      "type" => "#{type}",
-      "items" => %{"type" => "#{item_type}"}
-    }
+    items_schema = McpServer.Schema.new(type: "#{item_type}")
+
+    McpServer.Schema.new(
+      type: "#{type}",
+      items: items_schema
+    )
   end
 
   defp format_array_items(%{type: type, schema: {:array_with_schema, items_schema}}) do
-    %{
-      "type" => "#{type}",
-      "items" => format_array_items(items_schema)
-    }
+    items = format_array_items(items_schema)
+
+    McpServer.Schema.new(
+      type: "#{type}",
+      items: items
+    )
   end
 
   @doc false
@@ -1729,16 +1742,9 @@ defmodule McpServer.Router do
         hints = Keyword.get(unquote(tool.opts), :hints, [])
         title = Keyword.get(unquote(tool.opts), :title, unquote(name))
 
-        input_schema_map =
-          McpServer.Router.format_schema(unquote(input_fields(tool.statements.input_fields)))
-
-        # Convert the input_schema map to a Schema struct
+        # format_schema now returns a Schema struct directly
         input_schema =
-          McpServer.Schema.new(
-            type: input_schema_map["type"],
-            properties: input_schema_map["properties"],
-            required: input_schema_map["required"]
-          )
+          McpServer.Router.format_schema(unquote(input_fields(tool.statements.input_fields)))
 
         # Create Tool.Annotations struct
         annotations =
@@ -1755,7 +1761,8 @@ defmodule McpServer.Router do
           name: unquote(name),
           description: unquote(tool.description),
           input_schema: input_schema,
-          annotations: annotations
+          annotations: annotations,
+          callback: {unquote(tool.controller), unquote(tool.function)}
         )
       end
     end)

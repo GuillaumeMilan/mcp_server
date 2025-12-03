@@ -11,6 +11,7 @@ defmodule McpServer.Tool do
   - `description` - Human-readable description
   - `input_schema` - JSON Schema for input validation (can be a map or McpServer.Schema struct)
   - `annotations` - Optional metadata including title and behavioral hints
+  - `callback` - Internal callback information (module/function pair for execution, not serialized to JSON)
 
   ## Examples
 
@@ -36,14 +37,18 @@ defmodule McpServer.Tool do
     :name,
     :description,
     :input_schema,
-    :annotations
+    :annotations,
+    :callback
   ]
+
+  @type callback_info :: {module :: atom(), function :: atom()} | nil
 
   @type t :: %__MODULE__{
           name: String.t(),
           description: String.t(),
           input_schema: map() | McpServer.Schema.t(),
-          annotations: McpServer.Tool.Annotations.t() | nil
+          annotations: McpServer.Tool.Annotations.t() | nil,
+          callback: callback_info()
         }
 
   @doc """
@@ -56,6 +61,7 @@ defmodule McpServer.Tool do
     - `:description` (required) - Human-readable description
     - `:input_schema` (required) - JSON Schema for input validation
     - `:annotations` - Optional Tool.Annotations struct
+    - `:callback` - Optional callback information as `{module, function}` tuple
 
   ## Examples
 
@@ -74,12 +80,14 @@ defmodule McpServer.Tool do
       ...>   name: "greet",
       ...>   description: "Greets a person",
       ...>   input_schema: McpServer.Schema.new(type: "object"),
-      ...>   annotations: McpServer.Tool.Annotations.new(title: "Greeter")
+      ...>   annotations: McpServer.Tool.Annotations.new(title: "Greeter"),
+      ...>   callback: {MyController, :greet}
       ...> )
       %McpServer.Tool{
         name: "greet",
         description: "Greets a person",
-        annotations: %McpServer.Tool.Annotations{title: "Greeter"}
+        annotations: %McpServer.Tool.Annotations{title: "Greeter"},
+        callback: {MyController, :greet}
       }
   """
   @spec new(keyword()) :: t()
@@ -88,7 +96,8 @@ defmodule McpServer.Tool do
       name: Keyword.fetch!(opts, :name),
       description: Keyword.fetch!(opts, :description),
       input_schema: Keyword.fetch!(opts, :input_schema),
-      annotations: Keyword.get(opts, :annotations)
+      annotations: Keyword.get(opts, :annotations),
+      callback: Keyword.get(opts, :callback)
     }
   end
 end

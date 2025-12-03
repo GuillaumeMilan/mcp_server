@@ -182,9 +182,31 @@ defmodule McpServer.RouterTest do
       assert Map.has_key?(input_schema.properties, "message")
 
       message_field = input_schema.properties["message"]
-      assert message_field["description"] == "The message to echo"
-      assert message_field["type"] == "string"
+      assert message_field.description == "The message to echo"
+      assert message_field.type == "string"
       assert "message" in input_schema.required
+    end
+
+    test "tool has callback information stored" do
+      conn = mock_conn()
+      assert {:ok, tools} = TestRouter.list_tools(conn)
+      echo_tool = Enum.find(tools, &(&1.name == "echo"))
+
+      # Verify callback is set to the controller and function
+      assert echo_tool.callback == {TestController, :echo}
+    end
+
+    test "all tools have callback information" do
+      conn = mock_conn()
+      assert {:ok, tools} = TestRouter.list_tools(conn)
+
+      greet_tool = Enum.find(tools, &(&1.name == "greet"))
+      calculate_tool = Enum.find(tools, &(&1.name == "calculate"))
+      echo_tool = Enum.find(tools, &(&1.name == "echo"))
+
+      assert greet_tool.callback == {TestController, :greet}
+      assert calculate_tool.callback == {TestController, :calculate}
+      assert echo_tool.callback == {TestController, :echo}
     end
   end
 
@@ -773,35 +795,35 @@ defmodule McpServer.RouterTest do
       assert "user" in input_schema.required
 
       user_field = input_schema.properties["user"]
-      assert user_field["type"] == "object"
-      assert user_field["description"] == "User data"
+      assert user_field.type == "object"
+      assert user_field.description == "User data"
 
       # Check nested properties
-      assert is_map(user_field["properties"])
-      assert Map.has_key?(user_field["properties"], "name")
-      assert Map.has_key?(user_field["properties"], "email")
-      assert Map.has_key?(user_field["properties"], "address")
+      assert is_map(user_field.properties)
+      assert Map.has_key?(user_field.properties, "name")
+      assert Map.has_key?(user_field.properties, "email")
+      assert Map.has_key?(user_field.properties, "address")
 
       # Check required fields in nested object
-      assert "name" in user_field["required"]
-      assert "email" in user_field["required"]
-      assert "address" in user_field["required"]
+      assert "name" in user_field.required
+      assert "email" in user_field.required
+      assert "address" in user_field.required
 
       # Check deeply nested address object
-      address_field = user_field["properties"]["address"]
-      assert address_field["type"] == "object"
-      assert is_map(address_field["properties"])
-      assert Map.has_key?(address_field["properties"], "city")
-      assert Map.has_key?(address_field["properties"], "country")
-      assert "city" in address_field["required"]
-      assert "country" in address_field["required"]
+      address_field = user_field.properties["address"]
+      assert address_field.type == "object"
+      assert is_map(address_field.properties)
+      assert Map.has_key?(address_field.properties, "city")
+      assert Map.has_key?(address_field.properties, "country")
+      assert "city" in address_field.required
+      assert "country" in address_field.required
 
       # Check preferences with enum and default
-      preferences_field = user_field["properties"]["preferences"]
-      assert preferences_field["type"] == "object"
-      theme_field = preferences_field["properties"]["theme"]
-      assert theme_field["enum"] == ["light", "dark"]
-      assert theme_field["default"] == "light"
+      preferences_field = user_field.properties["preferences"]
+      assert preferences_field.type == "object"
+      theme_field = preferences_field.properties["theme"]
+      assert theme_field.enum == ["light", "dark"]
+      assert theme_field.default == "light"
     end
 
     test "calls tool with nested data successfully" do
@@ -832,15 +854,15 @@ defmodule McpServer.RouterTest do
       input_schema = configure_tool.input_schema
 
       settings_field = input_schema.properties["settings"]
-      database_field = settings_field["properties"]["database"]
+      database_field = settings_field.properties["database"]
 
-      assert database_field["type"] == "object"
-      assert Map.has_key?(database_field["properties"], "host")
-      assert Map.has_key?(database_field["properties"], "port")
-      assert "host" in database_field["required"]
+      assert database_field.type == "object"
+      assert Map.has_key?(database_field.properties, "host")
+      assert Map.has_key?(database_field.properties, "port")
+      assert "host" in database_field.required
 
-      port_field = database_field["properties"]["port"]
-      assert port_field["default"] == 5432
+      port_field = database_field.properties["port"]
+      assert port_field.default == 5432
     end
   end
 
@@ -907,12 +929,12 @@ defmodule McpServer.RouterTest do
       input_schema = process_tool.input_schema
 
       tags_field = input_schema.properties["tags"]
-      assert tags_field["type"] == "array"
-      assert tags_field["items"]["type"] == "string"
+      assert tags_field.type == "array"
+      assert tags_field.items.type == "string"
 
       scores_field = input_schema.properties["scores"]
-      assert scores_field["type"] == "array"
-      assert scores_field["items"]["type"] == "number"
+      assert scores_field.type == "array"
+      assert scores_field.items.type == "number"
     end
 
     test "generates correct schema for array with object items" do
@@ -923,21 +945,21 @@ defmodule McpServer.RouterTest do
       input_schema = batch_tool.input_schema
 
       users_field = input_schema.properties["users"]
-      assert users_field["type"] == "array"
+      assert users_field.type == "array"
 
-      items_schema = users_field["items"]
-      assert items_schema["type"] == "object"
-      assert Map.has_key?(items_schema["properties"], "name")
-      assert Map.has_key?(items_schema["properties"], "email")
-      assert Map.has_key?(items_schema["properties"], "roles")
+      items_schema = users_field.items
+      assert items_schema.type == "object"
+      assert Map.has_key?(items_schema.properties, "name")
+      assert Map.has_key?(items_schema.properties, "email")
+      assert Map.has_key?(items_schema.properties, "roles")
 
-      assert "name" in items_schema["required"]
-      assert "email" in items_schema["required"]
+      assert "name" in items_schema.required
+      assert "email" in items_schema.required
 
       # Check nested array in items
-      roles_field = items_schema["properties"]["roles"]
-      assert roles_field["type"] == "array"
-      assert roles_field["items"]["type"] == "string"
+      roles_field = items_schema.properties["roles"]
+      assert roles_field.type == "array"
+      assert roles_field.items.type == "string"
     end
 
     test "calls tool with array data successfully" do
@@ -973,25 +995,25 @@ defmodule McpServer.RouterTest do
       input_schema = project_tool.input_schema
 
       project_field = input_schema.properties["project"]
-      team_field = project_field["properties"]["team"]
+      team_field = project_field.properties["team"]
 
-      assert team_field["type"] == "array"
-      team_items = team_field["items"]
-      assert team_items["type"] == "object"
-      assert "user_id" in team_items["required"]
+      assert team_field.type == "array"
+      team_items = team_field.items
+      assert team_items.type == "object"
+      assert "user_id" in team_items.required
 
-      role_field = team_items["properties"]["role"]
-      assert role_field["enum"] == ["admin", "developer", "viewer"]
+      role_field = team_items.properties["role"]
+      assert role_field.enum == ["admin", "developer", "viewer"]
 
-      permissions_field = team_items["properties"]["permissions"]
-      assert permissions_field["type"] == "array"
-      assert permissions_field["items"]["type"] == "string"
+      permissions_field = team_items.properties["permissions"]
+      assert permissions_field.type == "array"
+      assert permissions_field.items.type == "string"
 
       # Check metadata.tags
-      metadata_field = project_field["properties"]["metadata"]
-      tags_field = metadata_field["properties"]["tags"]
-      assert tags_field["type"] == "array"
-      assert tags_field["items"]["type"] == "string"
+      metadata_field = project_field.properties["metadata"]
+      tags_field = metadata_field.properties["tags"]
+      assert tags_field.type == "array"
+      assert tags_field.items.type == "string"
     end
   end
 
@@ -1023,16 +1045,16 @@ defmodule McpServer.RouterTest do
       assert input_schema.type == "object"
 
       name_field = input_schema.properties["name"]
-      assert name_field["type"] == "string"
-      assert name_field["description"] == "Name"
+      assert name_field.type == "string"
+      assert name_field.description == "Name"
       assert "name" in input_schema.required
 
       age_field = input_schema.properties["age"]
-      assert age_field["type"] == "integer"
+      assert age_field.type == "integer"
 
       active_field = input_schema.properties["active"]
-      assert active_field["type"] == "boolean"
-      assert active_field["default"] == true
+      assert active_field.type == "boolean"
+      assert active_field.default == true
     end
 
     test "old-style tools can be called" do
