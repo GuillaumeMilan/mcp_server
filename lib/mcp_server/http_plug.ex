@@ -143,6 +143,7 @@ defmodule McpServer.HttpPlug do
   use Plug.Builder
   require Logger
   alias McpServer.JsonRpc
+  alias McpServer.Telemetry
   alias McpServer.URITemplate
 
   def init(opts) do
@@ -171,14 +172,51 @@ defmodule McpServer.HttpPlug do
   end
 
   def call(conn, opts) when conn.method == "POST" do
+    start_time = System.monotonic_time()
+
+    Telemetry.execute(
+      [:mcp_server, :request, :start],
+      %{system_time: System.system_time()},
+      %{method: conn.method, path: conn.request_path}
+    )
+
     {:ok, body, conn} = Plug.Conn.read_body(conn, length: 1_000_000)
     %McpServer.Conn{} = mcp_conn = opts.init_conn_callback.(conn)
     conn = put_private(conn, :mcp_conn, mcp_conn)
 
-    conn
-    |> setup_connection(opts)
-    |> handle_body(body)
-    |> halt()
+    try do
+      result_conn =
+        conn
+        |> setup_connection(opts)
+        |> handle_body(body)
+        |> halt()
+
+      Telemetry.execute(
+        [:mcp_server, :request, :stop],
+        %{duration: System.monotonic_time() - start_time},
+        %{
+          session_id: result_conn.private[:session_id],
+          method: result_conn.private[:json_rpc_method],
+          status: result_conn.status
+        }
+      )
+
+      result_conn
+    rescue
+      exception ->
+        Telemetry.execute(
+          [:mcp_server, :request, :exception],
+          %{duration: System.monotonic_time() - start_time},
+          %{
+            session_id: conn.private[:session_id],
+            kind: :error,
+            error: exception,
+            stacktrace: __STACKTRACE__
+          }
+        )
+
+        reraise exception, __STACKTRACE__
+    end
   end
 
   # Session management
@@ -290,6 +328,9 @@ defmodule McpServer.HttpPlug do
       Request: #{inspect(request)}
       """)
 
+      # Store the JSON-RPC method for telemetry
+      conn = put_private(conn, :json_rpc_method, request.method)
+
       with :ok <- validate_session_when_needed(conn, request) do
         handle_request(conn, request)
       else
@@ -298,6 +339,16 @@ defmodule McpServer.HttpPlug do
           Invalid session ID from session: #{inspect(session_id)}
           Reason: #{inspect(reason)}
           """)
+
+          Telemetry.execute(
+            [:mcp_server, :validation, :error],
+            %{system_time: System.system_time()},
+            %{
+              session_id: session_id,
+              type: :session_validation,
+              error: reason
+            }
+          )
 
           error_response =
             JsonRpc.new_error_response(-32602, "Invalid session", reason, request.id)
@@ -316,8 +367,25 @@ defmodule McpServer.HttpPlug do
         Body: #{inspect(body)}
         """)
 
+        # Convert error to string for telemetry and response
+        error_string =
+          case reason do
+            %{__struct__: _} -> inspect(reason)
+            _ when is_binary(reason) -> reason
+            _ -> inspect(reason)
+          end
+
+        Telemetry.execute(
+          [:mcp_server, :json_rpc, :decode_error],
+          %{system_time: System.system_time()},
+          %{
+            session_id: session_id,
+            error: error_string
+          }
+        )
+
         error_response =
-          JsonRpc.new_error_response(-32700, "Parse error", reason, nil)
+          JsonRpc.new_error_response(-32700, "Parse error", error_string, nil)
           |> JsonRpc.encode_response()
           |> Jason.encode!()
 
@@ -328,6 +396,16 @@ defmodule McpServer.HttpPlug do
   def handle_request(conn, %JsonRpc.Request{method: "initialize", id: id}) do
     # Generate a new session ID for initialization
     session_id = generate_session_id()
+
+    Telemetry.execute(
+      [:mcp_server, :session, :init],
+      %{system_time: System.system_time()},
+      %{
+        session_id: session_id,
+        protocol_version: "2025-06-18",
+        server_info: conn.private.server_info
+      }
+    )
 
     result = %{
       "capabilities" => %{
@@ -350,6 +428,7 @@ defmodule McpServer.HttpPlug do
 
     conn
     |> put_session_id_header(session_id)
+    |> put_private(:session_id, session_id)
     |> send_resp(200, response_json)
   end
 
@@ -357,6 +436,12 @@ defmodule McpServer.HttpPlug do
     # This is a notification (no id), so we don't send a response
     session_id = conn.private.session_id
     Logger.info("Client initialized for session: #{session_id}")
+
+    Telemetry.execute(
+      [:mcp_server, :session, :initialized],
+      %{system_time: System.system_time()},
+      %{session_id: session_id}
+    )
 
     # Just return 202 Accepted for notifications
     send_resp(conn, 202, "")
@@ -369,6 +454,12 @@ defmodule McpServer.HttpPlug do
     case set_logger_level(level, session_id) do
       :ok ->
         Logger.info("Logger level set to: #{level} for session: #{session_id}")
+
+        Telemetry.execute(
+          [:mcp_server, :logging, :set_level],
+          %{system_time: System.system_time()},
+          %{session_id: session_id, level: level}
+        )
 
         # Return empty result for successful setLevel
         response = JsonRpc.new_response(%{}, id)
@@ -400,6 +491,12 @@ defmodule McpServer.HttpPlug do
 
     case router.list_tools(mcp_conn) do
       {:ok, tools} ->
+        Telemetry.execute(
+          [:mcp_server, :tool, :list],
+          %{count: length(tools)},
+          %{session_id: session_id}
+        )
+
         result = %{
           "tools" => tools
         }
@@ -440,9 +537,23 @@ defmodule McpServer.HttpPlug do
       "Tool call request from session #{session_id} - Name: #{inspect(tool_name)}, Arguments: #{inspect(arguments)}"
     )
 
+    start_time = System.monotonic_time()
+
+    Telemetry.execute(
+      [:mcp_server, :tool, :call_start],
+      %{system_time: System.system_time()},
+      %{session_id: session_id, tool_name: tool_name, arguments: arguments}
+    )
+
     router.call_tool(mcp_conn, tool_name, arguments)
     |> case do
       {:ok, content} ->
+        Telemetry.execute(
+          [:mcp_server, :tool, :call_stop],
+          %{duration: System.monotonic_time() - start_time},
+          %{session_id: session_id, tool_name: tool_name, result_count: length(content)}
+        )
+
         result = %{
           "content" => content,
           "isError" => false
@@ -455,6 +566,12 @@ defmodule McpServer.HttpPlug do
         send_resp(conn, 200, response_json)
 
       {:error, error_message} ->
+        Telemetry.execute(
+          [:mcp_server, :tool, :call_exception],
+          %{duration: System.monotonic_time() - start_time},
+          %{session_id: session_id, tool_name: tool_name, error: error_message, kind: :error}
+        )
+
         result = %{
           "content" => [
             %{
@@ -472,6 +589,17 @@ defmodule McpServer.HttpPlug do
         send_resp(conn, 200, response_json)
 
       _ ->
+        Telemetry.execute(
+          [:mcp_server, :tool, :call_exception],
+          %{duration: System.monotonic_time() - start_time},
+          %{
+            session_id: session_id,
+            tool_name: tool_name,
+            error: "Unexpected response format",
+            kind: :error
+          }
+        )
+
         Logger.error("Unexpected response format from tool call for session #{session_id}")
 
         error_response =
@@ -495,6 +623,12 @@ defmodule McpServer.HttpPlug do
 
     case router.list_resources(mcp_conn) do
       {:ok, resources} ->
+        Telemetry.execute(
+          [:mcp_server, :resource, :list],
+          %{count: length(resources)},
+          %{session_id: session_id}
+        )
+
         result = %{
           "resources" => resources
         }
@@ -531,6 +665,12 @@ defmodule McpServer.HttpPlug do
 
     case router.list_templates_resource(mcp_conn) do
       {:ok, templates} ->
+        Telemetry.execute(
+          [:mcp_server, :resource, :templates_list],
+          %{count: length(templates)},
+          %{session_id: session_id}
+        )
+
         result = %{
           "resourceTemplates" => templates
         }
@@ -574,9 +714,39 @@ defmodule McpServer.HttpPlug do
     # Try to resolve the resource name/template via router.resources_list
     case find_matching_resource(router, uri) do
       {:ok, resource_name, vars} ->
+        start_time = System.monotonic_time()
+
+        Telemetry.execute(
+          [:mcp_server, :resource, :read_start],
+          %{system_time: System.system_time()},
+          %{
+            session_id: session_id,
+            resource_uri: uri,
+            resource_name: resource_name,
+            template_vars: Map.new(vars)
+          }
+        )
+
         # delegate to router.read_resource with extracted variables
         case router.read_resource(mcp_conn, resource_name, Map.new(vars)) do
           {:ok, result} ->
+            content_count =
+              case result do
+                %{"contents" => contents} when is_list(contents) -> length(contents)
+                _ -> 1
+              end
+
+            Telemetry.execute(
+              [:mcp_server, :resource, :read_stop],
+              %{duration: System.monotonic_time() - start_time},
+              %{
+                session_id: session_id,
+                resource_uri: uri,
+                resource_name: resource_name,
+                content_count: content_count
+              }
+            )
+
             response = JsonRpc.new_response(result, id)
             response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
@@ -584,6 +754,18 @@ defmodule McpServer.HttpPlug do
             send_resp(conn, 200, response_json)
 
           {:error, error_message} ->
+            Telemetry.execute(
+              [:mcp_server, :resource, :read_exception],
+              %{duration: System.monotonic_time() - start_time},
+              %{
+                session_id: session_id,
+                resource_uri: uri,
+                resource_name: resource_name,
+                error: error_message,
+                kind: :error
+              }
+            )
+
             Logger.error("Resource read failed for session #{session_id}: #{error_message}")
 
             error_response =
@@ -601,6 +783,17 @@ defmodule McpServer.HttpPlug do
 
       :no_match ->
         Logger.error("Resource not found for URI: #{inspect(uri)}")
+
+        Telemetry.execute(
+          [:mcp_server, :resource, :read_exception],
+          %{duration: 0},
+          %{
+            session_id: session_id,
+            resource_uri: uri,
+            error: "Resource not found",
+            kind: :not_found
+          }
+        )
 
         error_response =
           JsonRpc.new_error_response(
@@ -624,6 +817,12 @@ defmodule McpServer.HttpPlug do
 
     case router.prompts_list(mcp_conn) do
       {:ok, prompts} ->
+        Telemetry.execute(
+          [:mcp_server, :prompt, :list],
+          %{count: length(prompts)},
+          %{session_id: session_id}
+        )
+
         result = %{
           "prompts" => prompts
         }
@@ -664,8 +863,45 @@ defmodule McpServer.HttpPlug do
       "Completion request from session #{session_id} - Ref: #{inspect(ref)}, Argument: #{inspect(argument)}"
     )
 
+    ref_type = Map.get(ref, "type")
+    ref_name = Map.get(ref, "name") || Map.get(ref, "uri")
+    arg_name = Map.get(argument, "name")
+    prefix = Map.get(argument, "value")
+
+    start_time = System.monotonic_time()
+
+    Telemetry.execute(
+      [:mcp_server, :completion, :start],
+      %{system_time: System.system_time()},
+      %{
+        session_id: session_id,
+        ref_type: ref_type,
+        ref_name: ref_name,
+        argument_name: arg_name,
+        prefix: prefix
+      }
+    )
+
     case handle_completion(router, mcp_conn, ref, argument) do
       {:ok, result} ->
+        completion_count =
+          case result do
+            %{"completion" => %{"values" => values}} when is_list(values) -> length(values)
+            %{"completion" => %McpServer.Completion{values: values}} -> length(values)
+            _ -> 0
+          end
+
+        Telemetry.execute(
+          [:mcp_server, :completion, :stop],
+          %{duration: System.monotonic_time() - start_time},
+          %{
+            session_id: session_id,
+            ref_type: ref_type,
+            ref_name: ref_name,
+            completion_count: completion_count
+          }
+        )
+
         response = JsonRpc.new_response(result, id)
         response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
 
@@ -673,6 +909,18 @@ defmodule McpServer.HttpPlug do
         send_resp(conn, 200, response_json)
 
       {:error, reason} ->
+        Telemetry.execute(
+          [:mcp_server, :completion, :exception],
+          %{duration: System.monotonic_time() - start_time},
+          %{
+            session_id: session_id,
+            ref_type: ref_type,
+            ref_name: ref_name,
+            error: reason,
+            kind: :error
+          }
+        )
+
         Logger.error("Completion failed for session #{session_id}: #{reason}")
 
         error_response =
@@ -700,8 +948,22 @@ defmodule McpServer.HttpPlug do
       "Prompt get request from session #{session_id} - Name: #{inspect(name)}, Arguments: #{inspect(arguments)}"
     )
 
+    start_time = System.monotonic_time()
+
+    Telemetry.execute(
+      [:mcp_server, :prompt, :get_start],
+      %{system_time: System.system_time()},
+      %{session_id: session_id, prompt_name: name, arguments: arguments}
+    )
+
     case router.get_prompt(mcp_conn, name, arguments) do
       {:ok, messages} ->
+        Telemetry.execute(
+          [:mcp_server, :prompt, :get_stop],
+          %{duration: System.monotonic_time() - start_time},
+          %{session_id: session_id, prompt_name: name, message_count: length(messages)}
+        )
+
         result = %{
           # TODO: Could be enhanced to include prompt description
           "description" => "Prompt response",
@@ -715,6 +977,12 @@ defmodule McpServer.HttpPlug do
         send_resp(conn, 200, response_json)
 
       {:error, reason} ->
+        Telemetry.execute(
+          [:mcp_server, :prompt, :get_exception],
+          %{duration: System.monotonic_time() - start_time},
+          %{session_id: session_id, prompt_name: name, error: reason, kind: :error}
+        )
+
         Logger.error("Prompt get failed for session #{session_id}: #{reason}")
 
         error_response =
@@ -830,9 +1098,9 @@ defmodule McpServer.HttpPlug do
     # First check static resources for exact match
     case router.list_resources(%McpServer.Conn{}) do
       {:ok, static_resources} ->
-        case Enum.find(static_resources, fn res -> Map.get(res, "uri") == uri end) do
+        case Enum.find(static_resources, fn res -> res.uri == uri end) do
           %{} = res ->
-            {:ok, res["name"], []}
+            {:ok, res.name, []}
 
           nil ->
             # Then check template resources using URITemplate.match/2
@@ -840,7 +1108,7 @@ defmodule McpServer.HttpPlug do
               {:ok, templates} ->
                 templates
                 |> Enum.find_value(:no_match, fn res ->
-                  res_uri = Map.get(res, "uriTemplate")
+                  res_uri = res.uri_template
 
                   if is_binary(res_uri) do
                     tpl = URITemplate.new(res_uri)
@@ -849,7 +1117,7 @@ defmodule McpServer.HttpPlug do
                       {:ok, vars_map} when is_map(vars_map) ->
                         # Convert vars_map (map) into list of {var, value} as expected by callers
                         vars = Enum.map(vars_map, fn {k, v} -> {k, v} end)
-                        {:ok, res["name"], vars}
+                        {:ok, res.name, vars}
 
                       :nomatch ->
                         false

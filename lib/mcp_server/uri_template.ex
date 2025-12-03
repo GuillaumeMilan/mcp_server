@@ -163,9 +163,6 @@ defmodule McpServer.URITemplate do
                 end
 
               {:cont, {:ok, new_acc}}
-
-            {:error, _} = err ->
-              {:halt, err}
           end
       end)
 
