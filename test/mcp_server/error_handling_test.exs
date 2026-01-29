@@ -174,7 +174,7 @@ defmodule McpServer.ErrorHandlingTest do
     test "tool returning bare value is wrapped in {:ok, result}" do
       conn = mock_conn()
       assert {:error, error} = ErrorRouter.call_tool(conn, "tool_bare", %{})
-      assert error =~ "Tool execution failed: Invalid tool response:"
+      assert error =~ "Tool execution failed: Invalid tool response,"
     end
 
     test "missing required tool arguments returns error" do
