@@ -181,8 +181,6 @@ defmodule McpServer.HttpPlug do
     )
 
     {:ok, body, conn} = Plug.Conn.read_body(conn, length: 1_000_000)
-    %McpServer.Conn{} = mcp_conn = opts.init_conn_callback.(conn)
-    conn = put_private(conn, :mcp_conn, mcp_conn)
 
     try do
       result_conn =
@@ -310,6 +308,10 @@ defmodule McpServer.HttpPlug do
     |> put_private(:router, opts.router)
     |> put_private(:server_info, opts.server_info)
     |> put_private(:session_id, session_id)
+    |> then(fn conn ->
+      %McpServer.Conn{} = mcp_conn = opts.init_conn_callback.(conn)
+      put_private(conn, :mcp_conn, mcp_conn)
+    end)
     |> put_resp_header("cache-control", "no-cache")
     |> put_resp_header("connection", "keep-alive")
     |> put_resp_header("content-type", "application/json; charset=utf-8")
