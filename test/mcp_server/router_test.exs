@@ -897,16 +897,21 @@ defmodule McpServer.RouterTest do
 
   describe "nested structures - arrays" do
     defmodule ArrayController do
+      alias McpServer.Tool.Content, as: ToolContent
+
       def process_tags(_conn, %{"tags" => tags}) do
-        {:ok, %{"count" => length(tags)}}
+        text = Jason.encode!(%{"count" => length(tags)})
+        {:ok, [ToolContent.text(text)]}
       end
 
       def batch_create(_conn, %{"users" => users}) do
-        {:ok, %{"created" => length(users)}}
+        text = Jason.encode!(%{"created" => length(users)})
+        {:ok, [ToolContent.text(text)]}
       end
 
       def create_project(_conn, %{"project" => _project}) do
-        {:ok, %{"project_id" => "proj_123"}}
+        text = Jason.encode!(%{"project_id" => "proj_123"})
+        {:ok, [ToolContent.text(text)]}
       end
     end
 
@@ -949,6 +954,8 @@ defmodule McpServer.RouterTest do
         end
       end
     end
+
+    alias McpServer.Tool.Content
 
     test "generates correct schema for simple array items" do
       conn = mock_conn()
@@ -998,7 +1005,10 @@ defmodule McpServer.RouterTest do
         "tags" => ["elixir", "mcp", "server"]
       }
 
-      assert {:ok, result} = NestedArrayRouter.call_tool(conn, "process_tags", args)
+      assert {:ok, [%Content.Text{text: text}]} =
+               NestedArrayRouter.call_tool(conn, "process_tags", args)
+
+      assert result = Jason.decode!(text)
       assert result["count"] == 3
     end
 
@@ -1012,7 +1022,10 @@ defmodule McpServer.RouterTest do
         ]
       }
 
-      assert {:ok, result} = NestedArrayRouter.call_tool(conn, "batch_create", args)
+      assert {:ok, [%Content.Text{text: text}]} =
+               NestedArrayRouter.call_tool(conn, "batch_create", args)
+
+      assert result = Jason.decode!(text)
       assert result["created"] == 2
     end
 
@@ -1086,11 +1099,15 @@ defmodule McpServer.RouterTest do
       assert active_field.default == true
     end
 
+    import ExUnit.CaptureLog
+
     test "old-style tools can be called" do
       conn = mock_conn()
 
-      assert {:ok, result} = BackwardCompatRouter.call_tool(conn, "simple", %{"name" => "test"})
-      assert result == "test"
+      capture_log(fn ->
+        assert {:ok, result} = BackwardCompatRouter.call_tool(conn, "simple", %{"name" => "test"})
+        assert result == "test"
+      end)
     end
   end
 
@@ -1247,17 +1264,21 @@ defmodule McpServer.RouterTest do
     test "passes through the result unchanged" do
       content = [McpServer.Tool.Content.text("hello")]
 
-      result = McpServer.Router.validate_tool_result(content, "test_tool")
-
-      assert result == content
+      capture_log(fn ->
+        result = McpServer.Router.validate_tool_result(content, "test_tool")
+        assert result == content
+      end)
     end
 
     test "passes through invalid results unchanged (for backward compatibility)" do
-      result = McpServer.Router.validate_tool_result("bare", "test_tool")
-      assert result == "bare"
+      capture_log(fn ->
+        result = McpServer.Router.validate_tool_result("bare", "test_tool")
 
-      result2 = McpServer.Router.validate_tool_result(42, "test_tool")
-      assert result2 == 42
+        assert result == "bare"
+
+        result2 = McpServer.Router.validate_tool_result(42, "test_tool")
+        assert result2 == 42
+      end)
     end
   end
 
