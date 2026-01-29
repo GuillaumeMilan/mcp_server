@@ -1440,7 +1440,7 @@ defmodule McpServer.Router do
                       error
 
                     badly_formatted ->
-                      raise "Invalid tool response: #{inspect(badly_formatted)}"
+                      raise "Invalid tool response, expected `{:ok, result}` or `{:error, reason}` tuple.\nReceived: #{inspect(badly_formatted)}"
                   end
                 rescue
                   e -> {:error, "Tool execution failed: #{Exception.message(e)}"}

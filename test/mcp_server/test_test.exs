@@ -1,8 +1,6 @@
 defmodule McpServer.TestTest do
   use ExUnit.Case, async: true
 
-  import McpServer.Controller, only: [text_content: 1, message: 3, content: 3, completion: 2]
-
   # ===========================================
   # Test Router Setup
   # ===========================================
@@ -11,7 +9,7 @@ defmodule McpServer.TestTest do
     alias McpServer.Tool.Content, as: ToolContent
 
     def search(_conn, %{"query" => query}) do
-      [ToolContent.text("Found results for: #{query}")]
+      {:ok, [ToolContent.text("Found results for: #{query}")]}
     end
 
     def search(_conn, _args) do
@@ -19,7 +17,7 @@ defmodule McpServer.TestTest do
     end
 
     def echo(_conn, args) do
-      [ToolContent.text("Echo: #{inspect(args)}")]
+      {:ok, [ToolContent.text("Echo: #{inspect(args)}")]}
     end
 
     def failing_tool(_conn, _args) do
@@ -133,11 +131,10 @@ defmodule McpServer.TestTest do
   # ===========================================
 
   describe "call_tool/2" do
-    test "calls tool with valid arguments" do
-      result = call_tool("search", %{"query" => "test"})
+    alias McpServer.Tool.Content
 
-      assert {:ok, contents} = result
-      assert [%McpServer.Tool.Content.Text{text: text}] = contents
+    test "calls tool with valid arguments" do
+      {:ok, [%Content.Text{text: text}]} = call_tool("search", %{"query" => "test"})
       assert text =~ "Found results for: test"
     end
 
@@ -150,10 +147,7 @@ defmodule McpServer.TestTest do
 
     test "calls tool with custom connection" do
       conn = mock_conn(session_id: "custom-session")
-      result = call_tool("echo", %{"message" => "hello"}, conn)
-
-      assert {:ok, contents} = result
-      assert [%McpServer.Tool.Content.Text{text: text}] = contents
+      {:ok, [%Content.Text{text: text}]} = call_tool("echo", %{"message" => "hello"}, conn)
       assert text =~ "hello"
     end
 
