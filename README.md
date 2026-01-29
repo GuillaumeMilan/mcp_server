@@ -53,12 +53,24 @@ Create a module that uses `McpServer.Router` and defines your tools and prompts.
 ```elixir
 defmodule MyApp.MyController do
   import McpServer.Controller, only: [message: 3, completion: 2, content: 3]
-  
+  alias McpServer.Tool.Content, as: ToolContent
+
   # Tool functions - all receive conn as first parameter
-  def echo(_conn, args), do: Map.get(args, "message", "default")
-  def greet(conn, args), do: "Hello, #{Map.get(args, "name", "World")}, you are connected with session #{conn.session_id}!"
-  def calculate(_conn, args), do: Map.get(args, "a", 0) + Map.get(args, "b", 0)
-  
+  # Return a list of content items using McpServer.Tool.Content
+  def echo(_conn, args) do
+    [ToolContent.text(Map.get(args, "message", "default"))]
+  end
+
+  def greet(conn, args) do
+    name = Map.get(args, "name", "World")
+    [ToolContent.text("Hello, #{name}, you are connected with session #{conn.session_id}!")]
+  end
+
+  def calculate(_conn, args) do
+    result = Map.get(args, "a", 0) + Map.get(args, "b", 0)
+    [ToolContent.text("#{result}")]
+  end
+
   # Prompt functions - all receive conn as first parameter
   def get_greet_prompt(_conn, %{"user_name" => user_name}) do
     [
@@ -163,6 +175,41 @@ tool "tool_name", "Description", ControllerModule, :function_name do
 end
 ```
 
+### Controller Implementation
+
+Tool controller functions receive `conn` and `args`, and return a list of content items built with `McpServer.Tool.Content`:
+
+```elixir
+alias McpServer.Tool.Content, as: ToolContent
+
+# Return text content
+def my_tool(_conn, %{"query" => query}) do
+  [ToolContent.text("Results for: #{query}")]
+end
+
+# Return multiple content types
+def generate_chart(_conn, %{"data" => data}) do
+  chart_image = create_chart(data)
+  [
+    ToolContent.text("Chart generated successfully"),
+    ToolContent.image(chart_image, "image/png")
+  ]
+end
+
+# Return embedded resource content
+def read_file(_conn, %{"path" => path}) do
+  [ToolContent.resource("file://#{path}", text: File.read!(path), mimeType: "text/plain")]
+end
+
+# Signal an error
+def risky_tool(_conn, %{"input" => input}) do
+  case process(input) do
+    {:ok, result} -> [ToolContent.text(result)]
+    {:error, reason} -> {:error, reason}
+  end
+end
+```
+
 ## Prompts
 
 Prompts are interactive message templates with argument completion support. They're useful for generating structured conversations.
@@ -226,9 +273,9 @@ You can call your tools via the router module (note: you need to pass a connecti
 
 ```elixir
 iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> {:ok, result} = MyApp.Router.call_tool(conn, "echo", %{"message" => "Hello World"})
-iex> result
-# => "Hello World"
+iex> {:ok, [content]} = MyApp.Router.call_tool(conn, "echo", %{"message" => "Hello World"})
+iex> content
+# => %McpServer.Tool.Content.Text{text: "Hello World"}
 ```
 
 List all tools and their schemas (returns Tool structs):

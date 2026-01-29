@@ -6,26 +6,27 @@ defmodule McpServer.Controller do
 
       defmodule MyApp.MyController do
         import McpServer.Controller
+        alias McpServer.Tool.Content, as: ToolContent
 
-        # Tool content helpers
+        # Tool content helpers (use McpServer.Tool.Content)
         def search_tool(_conn, %{"query" => query}) do
           [
-            text_content("Found 5 results for: \#{query}"),
-            text_content("Result 1: ..."),
-            text_content("Result 2: ...")
+            ToolContent.text("Found 5 results for: \#{query}"),
+            ToolContent.text("Result 1: ..."),
+            ToolContent.text("Result 2: ...")
           ]
         end
 
         def generate_chart(_conn, %{"data" => data}) do
           chart_image = create_chart(data)
           [
-            text_content("Chart generated successfully"),
-            image_content(chart_image, "image/png")
+            ToolContent.text("Chart generated successfully"),
+            ToolContent.image(chart_image, "image/png")
           ]
         end
 
         def read_file(_conn, %{"path" => path}) do
-          resource_content("file://\#{path}", text: File.read!(path), mimeType: "text/plain")
+          ToolContent.resource("file://\#{path}", text: File.read!(path), mimeType: "text/plain")
         end
 
         # Resource content helpers
@@ -186,35 +187,23 @@ defmodule McpServer.Controller do
   @doc """
   Creates a text content item for tool responses.
 
-  Returns a `McpServer.Tool.Content.Text` struct that can be returned from tool functions.
-
-  ## Parameters
-
-  - `text` (string): the text content to return
+  Deprecated: Use `McpServer.Tool.Content.text/1` instead.
 
   ## Examples
 
       iex> text_content("Hello, World!")
       %McpServer.Tool.Content.Text{text: "Hello, World!"}
-
-      iex> text_content("Operation completed successfully")
-      %McpServer.Tool.Content.Text{text: "Operation completed successfully"}
   """
+  @deprecated "Use McpServer.Tool.Content.text/1 instead"
   @spec text_content(String.t()) :: McpServer.Tool.Content.Text.t()
   def text_content(text) when is_binary(text) do
-    McpServer.Tool.Content.Text.new(text: text)
+    McpServer.Tool.Content.text(text)
   end
 
   @doc """
   Creates an image content item for tool responses.
 
-  Returns a `McpServer.Tool.Content.Image` struct that can be returned from tool functions.
-  The image data will be automatically base64-encoded during JSON serialization.
-
-  ## Parameters
-
-  - `data` (binary): the raw image data
-  - `mime_type` (string): the MIME type of the image (e.g., "image/png", "image/jpeg")
+  Deprecated: Use `McpServer.Tool.Content.image/2` instead.
 
   ## Examples
 
@@ -222,23 +211,16 @@ defmodule McpServer.Controller do
       iex> image_content(image_data, "image/png")
       %McpServer.Tool.Content.Image{data: <<137, 80, 78, 71, 13, 10, 26, 10>>, mime_type: "image/png"}
   """
+  @deprecated "Use McpServer.Tool.Content.image/2 instead"
   @spec image_content(binary(), String.t()) :: McpServer.Tool.Content.Image.t()
   def image_content(data, mime_type) when is_binary(data) and is_binary(mime_type) do
-    McpServer.Tool.Content.Image.new(data: data, mime_type: mime_type)
+    McpServer.Tool.Content.image(data, mime_type)
   end
 
   @doc """
   Creates an embedded resource content item for tool responses.
 
-  Returns a `McpServer.Tool.Content.Resource` struct that can be returned from tool functions.
-
-  ## Parameters
-
-  - `uri` (string): the URI of the resource
-  - `opts` (keyword list): optional keys include:
-    - `:mimeType` - MIME type of the resource
-    - `:text` - textual content of the resource
-    - `:blob` - binary content; base64-encoded during JSON serialization
+  Deprecated: Use `McpServer.Tool.Content.resource/2` instead.
 
   ## Examples
 
@@ -252,27 +234,10 @@ defmodule McpServer.Controller do
         text: ~s({"key": "value"}),
         blob: nil
       }
-
-      iex> resource_content("file:///image.png", mimeType: "image/png", blob: <<255, 216, 255>>)
-      %McpServer.Tool.Content.Resource{
-        uri: "file:///image.png",
-        mime_type: "image/png",
-        text: nil,
-        blob: <<255, 216, 255>>
-      }
   """
+  @deprecated "Use McpServer.Tool.Content.resource/2 instead"
   @spec resource_content(String.t(), keyword()) :: McpServer.Tool.Content.Resource.t()
   def resource_content(uri, opts \\ []) when is_binary(uri) and is_list(opts) do
-    # Convert camelCase keys to snake_case for struct fields
-    mime_type = Keyword.get(opts, :mimeType) || Keyword.get(opts, :mime_type)
-    text = Keyword.get(opts, :text)
-    blob = Keyword.get(opts, :blob)
-
-    McpServer.Tool.Content.Resource.new(
-      uri: uri,
-      mime_type: mime_type,
-      text: text,
-      blob: blob
-    )
+    McpServer.Tool.Content.resource(uri, opts)
   end
 end

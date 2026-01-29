@@ -187,36 +187,88 @@ defmodule McpServer.Router do
 
   ### Controller Implementation
 
+  Tool controller functions must return a list of content items built with
+  `McpServer.Tool.Content`. The available content types are:
+
+  - `McpServer.Tool.Content.text/1` - Text content
+  - `McpServer.Tool.Content.image/2` - Image content (binary data + MIME type)
+  - `McpServer.Tool.Content.resource/2` - Embedded resource content (URI + options)
+
+  Returning `{:error, reason}` signals a tool execution error.
+
       defmodule MyApp.Calculator do
+        alias McpServer.Tool.Content, as: ToolContent
+
         def calculate(conn, %{"operation" => op, "a" => a, "b" => b}) do
           # Access session info if needed
           IO.inspect(conn.session_id)
 
           case op do
-            "add" -> a + b
-            "subtract" -> a - b
-            "multiply" -> a * b
-            "divide" when b != 0 -> a / b
-            "divide" -> {:error, "Division by zero"}
+            "add" ->
+              [ToolContent.text("Result: \#{a + b}")]
+
+            "subtract" ->
+              [ToolContent.text("Result: \#{a - b}")]
+
+            "multiply" ->
+              [ToolContent.text("Result: \#{a * b}")]
+
+            "divide" when b != 0 ->
+              [ToolContent.text("Result: \#{a / b}")]
+
+            "divide" ->
+              {:error, "Division by zero"}
           end
+        end
+      end
+
+  Tool functions can return multiple content items of different types:
+
+      defmodule MyApp.ChartController do
+        alias McpServer.Tool.Content, as: ToolContent
+
+        def generate_chart(_conn, %{"data" => data}) do
+          chart_image = create_chart(data)
+
+          [
+            ToolContent.text("Chart generated successfully"),
+            ToolContent.image(chart_image, "image/png")
+          ]
+        end
+      end
+
+  Embedded resources can also be returned as content:
+
+      defmodule MyApp.FileController do
+        alias McpServer.Tool.Content, as: ToolContent
+
+        def read(_conn, %{"path" => path}) do
+          content = File.read!(path)
+
+          [
+            ToolContent.text("Read \#{byte_size(content)} bytes from \#{path}"),
+            ToolContent.resource("file://\#{path}", text: content, mimeType: "text/plain")
+          ]
         end
       end
 
       # Controller for nested structures
       defmodule MyApp.UserController do
-        def create(conn, %{"user" => user_data}) do
+        alias McpServer.Tool.Content, as: ToolContent
+
+        def create(_conn, %{"user" => user_data}) do
           # user_data is a nested map matching your schema
           %{
             "name" => name,
-            "email" => email,
+            "email" => _email,
             "address" => %{
-              "city" => city,
-              "country" => country
+              "city" => _city,
+              "country" => _country
             }
           } = user_data
 
           # Your creation logic here
-          {:ok, %{"id" => "user_123", "created" => true}}
+          [ToolContent.text("User '\#{name}' created with id user_123")]
         end
       end
 
@@ -1381,9 +1433,14 @@ defmodule McpServer.Router do
               :ok ->
                 try do
                   case unquote(tool.controller).unquote(tool.function)(conn, args) do
-                    {:ok, result} -> {:ok, result}
-                    {:error, _} = error -> error
-                    result -> {:ok, result}
+                    {:ok, result} ->
+                      {:ok, McpServer.Router.validate_tool_result(result, unquote(tool.name))}
+
+                    {:error, _} = error ->
+                      error
+
+                    badly_formatted ->
+                      raise "Invalid tool response: #{inspect(badly_formatted)}"
                   end
                 rescue
                   e -> {:error, "Tool execution failed: #{Exception.message(e)}"}
@@ -1696,6 +1753,51 @@ defmodule McpServer.Router do
       items: items
     )
   end
+
+  @valid_content_types [
+    McpServer.Tool.Content.Text,
+    McpServer.Tool.Content.Image,
+    McpServer.Tool.Content.Resource
+  ]
+
+  @doc false
+  def validate_tool_result(result, tool_name) do
+    require Logger
+
+    cond do
+      not is_list(result) ->
+        Logger.warning(
+          "Tool '#{tool_name}' returned #{inspect_type(result)} instead of a list of content items " <>
+            "(McpServer.Tool.Content.Text, McpServer.Tool.Content.Image, McpServer.Tool.Content.Resource). " <>
+            "Use McpServer.Tool.Content helpers to build tool results."
+        )
+
+      true ->
+        result
+        |> Enum.with_index()
+        |> Enum.each(fn {item, index} ->
+          unless is_struct(item) and item.__struct__ in @valid_content_types do
+            Logger.warning(
+              "Tool '#{tool_name}' returned an invalid content item at index #{index}: " <>
+                "got #{inspect_type(item)}, expected one of " <>
+                "McpServer.Tool.Content.Text, McpServer.Tool.Content.Image, McpServer.Tool.Content.Resource. " <>
+                "Use McpServer.Tool.Content helpers to build tool results."
+            )
+          end
+        end)
+    end
+
+    result
+  end
+
+  defp inspect_type(%{__struct__: mod}), do: "%#{inspect(mod)}{}"
+  defp inspect_type(value) when is_binary(value), do: "a string"
+  defp inspect_type(value) when is_integer(value), do: "an integer"
+  defp inspect_type(value) when is_float(value), do: "a float"
+  defp inspect_type(value) when is_atom(value), do: "#{inspect(value)} (atom)"
+  defp inspect_type(value) when is_map(value), do: "a map"
+  defp inspect_type(value) when is_tuple(value), do: "a tuple"
+  defp inspect_type(_value), do: "an unexpected value"
 
   @doc false
   # TODO put in a dedicated module

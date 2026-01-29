@@ -1,9 +1,10 @@
 defmodule McpServer.Tool.Content do
   @moduledoc """
-  Structs for representing tool result content items.
+  Structs and helper functions for representing tool result content items.
 
-  This module provides typed structs for different types of content that can be
-  returned from tool functions, following the MCP protocol specification.
+  This module provides typed structs and convenience functions for different
+  types of content that can be returned from tool functions, following the
+  MCP protocol specification.
 
   ## Content Types
 
@@ -11,7 +12,33 @@ defmodule McpServer.Tool.Content do
   - `Image` - Image content with base64-encoded data
   - `Resource` - Embedded resource content
 
-  ## Examples
+  ## Usage
+
+  You can alias this module and use the helper functions to build tool results:
+
+      alias McpServer.Tool.Content, as: ToolContent
+
+      def search_tool(_conn, %{"query" => query}) do
+        [
+          ToolContent.text("Found 5 results for: \#{query}"),
+          ToolContent.text("Result 1: ..."),
+          ToolContent.text("Result 2: ...")
+        ]
+      end
+
+      def generate_chart(_conn, %{"data" => data}) do
+        chart_image = create_chart(data)
+        [
+          ToolContent.text("Chart generated successfully"),
+          ToolContent.image(chart_image, "image/png")
+        ]
+      end
+
+      def read_file(_conn, %{"path" => path}) do
+        [ToolContent.resource("file://\#{path}", text: File.read!(path), mimeType: "text/plain")]
+      end
+
+  ## Low-level Struct API
 
       iex> alias McpServer.Tool.Content
       iex> text = Content.Text.new(text: "Hello, World!")
@@ -27,6 +54,98 @@ defmodule McpServer.Tool.Content do
       iex> resource.uri
       "file:///path/to/file.txt"
   """
+
+  @doc """
+  Creates a text content item for tool responses.
+
+  Returns a `McpServer.Tool.Content.Text` struct.
+
+  ## Parameters
+
+  - `text` (string): the text content to return
+
+  ## Examples
+
+      iex> McpServer.Tool.Content.text("Hello, World!")
+      %McpServer.Tool.Content.Text{text: "Hello, World!"}
+
+      iex> McpServer.Tool.Content.text("Operation completed successfully")
+      %McpServer.Tool.Content.Text{text: "Operation completed successfully"}
+  """
+  @spec text(String.t()) :: McpServer.Tool.Content.Text.t()
+  def text(text) when is_binary(text) do
+    McpServer.Tool.Content.Text.new(text: text)
+  end
+
+  @doc """
+  Creates an image content item for tool responses.
+
+  Returns a `McpServer.Tool.Content.Image` struct.
+  The image data will be automatically base64-encoded during JSON serialization.
+
+  ## Parameters
+
+  - `data` (binary): the raw image data
+  - `mime_type` (string): the MIME type of the image (e.g., "image/png", "image/jpeg")
+
+  ## Examples
+
+      iex> image_data = <<137, 80, 78, 71, 13, 10, 26, 10>>
+      iex> McpServer.Tool.Content.image(image_data, "image/png")
+      %McpServer.Tool.Content.Image{data: <<137, 80, 78, 71, 13, 10, 26, 10>>, mime_type: "image/png"}
+  """
+  @spec image(binary(), String.t()) :: McpServer.Tool.Content.Image.t()
+  def image(data, mime_type) when is_binary(data) and is_binary(mime_type) do
+    McpServer.Tool.Content.Image.new(data: data, mime_type: mime_type)
+  end
+
+  @doc """
+  Creates an embedded resource content item for tool responses.
+
+  Returns a `McpServer.Tool.Content.Resource` struct.
+
+  ## Parameters
+
+  - `uri` (string): the URI of the resource
+  - `opts` (keyword list): optional keys include:
+    - `:mimeType` - MIME type of the resource
+    - `:text` - textual content of the resource
+    - `:blob` - binary content; base64-encoded during JSON serialization
+
+  ## Examples
+
+      iex> McpServer.Tool.Content.resource("file:///path/to/file.txt")
+      %McpServer.Tool.Content.Resource{uri: "file:///path/to/file.txt", text: nil, blob: nil, mime_type: nil}
+
+      iex> McpServer.Tool.Content.resource("file:///data.json", mimeType: "application/json", text: ~s({"key": "value"}))
+      %McpServer.Tool.Content.Resource{
+        uri: "file:///data.json",
+        mime_type: "application/json",
+        text: ~s({"key": "value"}),
+        blob: nil
+      }
+
+      iex> McpServer.Tool.Content.resource("file:///image.png", mimeType: "image/png", blob: <<255, 216, 255>>)
+      %McpServer.Tool.Content.Resource{
+        uri: "file:///image.png",
+        mime_type: "image/png",
+        text: nil,
+        blob: <<255, 216, 255>>
+      }
+  """
+  @spec resource(String.t(), keyword()) :: McpServer.Tool.Content.Resource.t()
+  def resource(uri, opts \\ []) when is_binary(uri) and is_list(opts) do
+    mime_type = Keyword.get(opts, :mimeType) || Keyword.get(opts, :mime_type)
+    text = Keyword.get(opts, :text)
+    blob = Keyword.get(opts, :blob)
+
+    McpServer.Tool.Content.Resource.new(
+      uri: uri,
+      mime_type: mime_type,
+      text: text,
+      blob: blob
+    )
+  end
 
   defmodule Text do
     @moduledoc """
