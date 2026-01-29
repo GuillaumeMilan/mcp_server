@@ -24,7 +24,7 @@ defmodule McpServer.TelemetryTest do
 
     def echo(_conn, args) do
       message = Map.get(args, "message", "default")
-      [ToolContent.text(message)]
+      {:ok, [ToolContent.text(message)]}
     end
 
     def failing_tool(_conn, _args) do
