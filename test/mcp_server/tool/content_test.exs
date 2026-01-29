@@ -269,6 +269,135 @@ defmodule McpServer.Tool.ContentTest do
     end
   end
 
+  describe "text/1 helper" do
+    test "creates text content struct" do
+      result = Content.text("Hello, World!")
+
+      assert %Content.Text{} = result
+      assert result.text == "Hello, World!"
+    end
+
+    test "creates text content with empty string" do
+      result = Content.text("")
+      assert result.text == ""
+    end
+
+    test "creates text content with unicode" do
+      result = Content.text("Hello 世界 🌍")
+      assert result.text == "Hello 世界 🌍"
+    end
+
+    test "JSON encodes correctly" do
+      result = Content.text("Test message")
+      decoded = result |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "text"
+      assert decoded["text"] == "Test message"
+    end
+  end
+
+  describe "image/2 helper" do
+    test "creates image content struct" do
+      data = <<137, 80, 78, 71, 13, 10, 26, 10>>
+      result = Content.image(data, "image/png")
+
+      assert %Content.Image{} = result
+      assert result.data == data
+      assert result.mime_type == "image/png"
+    end
+
+    test "creates image content with empty binary" do
+      result = Content.image(<<>>, "image/gif")
+
+      assert result.data == <<>>
+      assert result.mime_type == "image/gif"
+    end
+
+    test "JSON encodes with base64 data" do
+      data = <<1, 2, 3, 4, 5>>
+      result = Content.image(data, "image/jpeg")
+      decoded = result |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "image"
+      assert decoded["data"] == Base.encode64(data)
+      assert decoded["mimeType"] == "image/jpeg"
+    end
+  end
+
+  describe "resource/2 helper" do
+    test "creates resource content with URI only" do
+      result = Content.resource("file:///path/to/file.txt")
+
+      assert %Content.Resource{} = result
+      assert result.uri == "file:///path/to/file.txt"
+      assert result.text == nil
+      assert result.blob == nil
+      assert result.mime_type == nil
+    end
+
+    test "creates resource content with text and mimeType" do
+      result =
+        Content.resource("file:///data.json",
+          mimeType: "application/json",
+          text: ~s({"key": "value"})
+        )
+
+      assert result.uri == "file:///data.json"
+      assert result.mime_type == "application/json"
+      assert result.text == ~s({"key": "value"})
+      assert result.blob == nil
+    end
+
+    test "creates resource content with blob" do
+      blob = <<255, 216, 255>>
+
+      result =
+        Content.resource("file:///image.png", mimeType: "image/png", blob: blob)
+
+      assert result.uri == "file:///image.png"
+      assert result.mime_type == "image/png"
+      assert result.blob == blob
+    end
+
+    test "accepts snake_case mime_type option" do
+      result = Content.resource("file:///test.txt", mime_type: "text/plain")
+      assert result.mime_type == "text/plain"
+    end
+
+    test "JSON encodes correctly" do
+      result =
+        Content.resource("file:///test.txt", mimeType: "text/plain", text: "content")
+
+      decoded = result |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "resource"
+      assert decoded["resource"]["uri"] == "file:///test.txt"
+      assert decoded["resource"]["mimeType"] == "text/plain"
+      assert decoded["resource"]["text"] == "content"
+    end
+  end
+
+  describe "helpers produce same results as struct constructors" do
+    test "text/1 matches Text.new/1" do
+      from_helper = Content.text("Hello")
+      from_new = Content.Text.new(text: "Hello")
+      assert from_helper == from_new
+    end
+
+    test "image/2 matches Image.new/1" do
+      data = <<1, 2, 3>>
+      from_helper = Content.image(data, "image/png")
+      from_new = Content.Image.new(data: data, mime_type: "image/png")
+      assert from_helper == from_new
+    end
+
+    test "resource/2 matches Resource.new/1" do
+      from_helper = Content.resource("file:///test", text: "hi", mime_type: "text/plain")
+      from_new = Content.Resource.new(uri: "file:///test", text: "hi", mime_type: "text/plain")
+      assert from_helper == from_new
+    end
+  end
+
   describe "MCP protocol compliance" do
     test "all content types have 'type' field in JSON" do
       text = Content.Text.new(text: "test")

@@ -8,8 +8,10 @@ defmodule McpServer.TestTest do
   # ===========================================
 
   defmodule TestController do
+    alias McpServer.Tool.Content, as: ToolContent
+
     def search(_conn, %{"query" => query}) do
-      [McpServer.Controller.text_content("Found results for: #{query}")]
+      [ToolContent.text("Found results for: #{query}")]
     end
 
     def search(_conn, _args) do
@@ -17,7 +19,7 @@ defmodule McpServer.TestTest do
     end
 
     def echo(_conn, args) do
-      [McpServer.Controller.text_content("Echo: #{inspect(args)}")]
+      [ToolContent.text("Echo: #{inspect(args)}")]
     end
 
     def failing_tool(_conn, _args) do

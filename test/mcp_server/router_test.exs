@@ -9,19 +9,21 @@ defmodule McpServer.RouterTest do
 
   # Mock controller for testing
   defmodule TestController do
+    alias McpServer.Tool.Content, as: ToolContent
+
     def echo(_conn, args) do
-      Map.get(args, "message", "default")
+      {:ok, [ToolContent.text(Map.get(args, "message", "default"))]}
     end
 
     def greet(_conn, args) do
       name = Map.get(args, "name", "World")
-      "Hello, #{name}!"
+      {:ok, [ToolContent.text("Hello, #{name}!")]}
     end
 
     def calculate(_conn, args) do
       a = Map.get(args, "a", 0)
       b = Map.get(args, "b", 0)
-      a + b
+      {:ok, [ToolContent.text("#{a + b}")]}
     end
 
     # Prompt controller functions
@@ -211,28 +213,39 @@ defmodule McpServer.RouterTest do
   end
 
   describe "call_tool/3" do
+    alias McpServer.Tool.Content
+
     test "successfully calls tool with valid arguments" do
       conn = mock_conn()
-      assert {:ok, result} = TestRouter.call_tool(conn, "echo", %{"message" => "Hello World"})
+
+      assert {:ok, [%Content.Text{text: result}]} =
+               TestRouter.call_tool(conn, "echo", %{"message" => "Hello World"})
+
       assert result == "Hello World"
     end
 
     test "calls tool with optional arguments" do
       conn = mock_conn()
-      assert {:ok, result} = TestRouter.call_tool(conn, "greet", %{"name" => "Alice"})
+
+      assert {:ok, [%Content.Text{text: result}]} =
+               TestRouter.call_tool(conn, "greet", %{"name" => "Alice"})
+
       assert result == "Hello, Alice!"
     end
 
     test "calls tool without optional arguments" do
       conn = mock_conn()
-      assert {:ok, result} = TestRouter.call_tool(conn, "greet", %{})
+      assert {:ok, [%Content.Text{text: result}]} = TestRouter.call_tool(conn, "greet", %{})
       assert result == "Hello, World!"
     end
 
     test "calls tool with multiple required arguments" do
       conn = mock_conn()
-      assert {:ok, result} = TestRouter.call_tool(conn, "calculate", %{"a" => 5, "b" => 3})
-      assert result == 8
+
+      assert {:ok, [%Content.Text{text: result}]} =
+               TestRouter.call_tool(conn, "calculate", %{"a" => 5, "b" => 3})
+
+      assert result == "8"
     end
 
     test "returns error when tool not found" do
@@ -622,8 +635,10 @@ defmodule McpServer.RouterTest do
 
   describe "router with only tools (no prompts)" do
     defmodule OnlyToolsController do
+      alias McpServer.Tool.Content, as: ToolContent
+
       def echo(_conn, args) do
-        Map.get(args, "message", "default")
+        {:ok, [ToolContent.text(Map.get(args, "message", "default"))]}
       end
     end
 
@@ -636,6 +651,8 @@ defmodule McpServer.RouterTest do
       end
     end
 
+    alias McpServer.Tool.Content
+
     test "compiles successfully with only tools defined" do
       # If this test runs, it means the module compiled successfully
       conn = mock_conn()
@@ -645,7 +662,10 @@ defmodule McpServer.RouterTest do
 
     test "call_tool works correctly" do
       conn = mock_conn()
-      assert {:ok, result} = OnlyToolsRouter.call_tool(conn, "echo", %{"message" => "Hello"})
+
+      assert {:ok, [%Content.Text{text: result}]} =
+               OnlyToolsRouter.call_tool(conn, "echo", %{"message" => "Hello"})
+
       assert result == "Hello"
     end
 
@@ -736,12 +756,16 @@ defmodule McpServer.RouterTest do
 
   describe "nested structures - objects" do
     defmodule NestedController do
+      alias McpServer.Tool.Content, as: ToolContent
+
       def create_user(_conn, %{"user" => user_data}) do
-        {:ok, %{"id" => "user_123", "data" => user_data}}
+        text = Jason.encode!(%{"id" => "user_123", "data" => user_data})
+        {:ok, [ToolContent.text(text)]}
       end
 
       def get_config(_conn, %{"settings" => _settings}) do
-        {:ok, %{"status" => "configured"}}
+        text = Jason.encode!(%{"status" => "configured"})
+        {:ok, [ToolContent.text(text)]}
       end
     end
 
@@ -782,6 +806,8 @@ defmodule McpServer.RouterTest do
         end
       end
     end
+
+    alias McpServer.Tool.Content
 
     test "generates correct nested object schema" do
       conn = mock_conn()
@@ -841,7 +867,10 @@ defmodule McpServer.RouterTest do
         }
       }
 
-      assert {:ok, result} = NestedObjectRouter.call_tool(conn, "create_user", args)
+      assert {:ok, [%Content.Text{text: json}]} =
+               NestedObjectRouter.call_tool(conn, "create_user", args)
+
+      assert result = Jason.decode!(json)
       assert result["id"] == "user_123"
       assert result["data"]["name"] == "John Doe"
     end
@@ -1062,6 +1091,306 @@ defmodule McpServer.RouterTest do
 
       assert {:ok, result} = BackwardCompatRouter.call_tool(conn, "simple", %{"name" => "test"})
       assert result == "test"
+    end
+  end
+
+  describe "validate_tool_result/2" do
+    import ExUnit.CaptureLog
+
+    test "does not warn for a valid list of Text content" do
+      log =
+        capture_log(fn ->
+          result =
+            McpServer.Router.validate_tool_result(
+              [McpServer.Tool.Content.text("hello")],
+              "test_tool"
+            )
+
+          assert [%McpServer.Tool.Content.Text{text: "hello"}] = result
+        end)
+
+      assert log == ""
+    end
+
+    test "does not warn for a valid list of mixed content types" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(
+            [
+              McpServer.Tool.Content.text("hello"),
+              McpServer.Tool.Content.image(<<1, 2, 3>>, "image/png"),
+              McpServer.Tool.Content.resource("file:///test.txt")
+            ],
+            "test_tool"
+          )
+        end)
+
+      assert log == ""
+    end
+
+    test "does not warn for an empty list" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result([], "test_tool")
+        end)
+
+      assert log == ""
+    end
+
+    test "warns when result is a bare string" do
+      log =
+        capture_log(fn ->
+          result = McpServer.Router.validate_tool_result("bare string", "test_tool")
+          # Still passes through the value
+          assert result == "bare string"
+        end)
+
+      assert log =~ "Tool 'test_tool' returned a string instead of a list"
+      assert log =~ "McpServer.Tool.Content"
+    end
+
+    test "warns when result is an integer" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(42, "calc")
+        end)
+
+      assert log =~ "Tool 'calc' returned an integer instead of a list"
+    end
+
+    test "warns when result is a float" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(3.14, "calc")
+        end)
+
+      assert log =~ "Tool 'calc' returned a float instead of a list"
+    end
+
+    test "warns when result is a plain map" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(%{key: "value"}, "test_tool")
+        end)
+
+      assert log =~ "Tool 'test_tool' returned a map instead of a list"
+    end
+
+    test "warns when result is an atom" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(:ok, "test_tool")
+        end)
+
+      assert log =~ "Tool 'test_tool' returned :ok (atom) instead of a list"
+    end
+
+    test "warns when result is a struct owarns when result is a struct of wrong typef wrong type" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(%McpServer.Completion{values: []}, "test_tool")
+        end)
+
+      assert log =~ "Tool 'test_tool' returned %McpServer.Completion{} instead of a list"
+    end
+
+    test "warns for invalid items in the list at correct indices" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(
+            [
+              McpServer.Tool.Content.text("good"),
+              "bad string",
+              McpServer.Tool.Content.image(<<1>>, "image/png"),
+              42
+            ],
+            "my_tool"
+          )
+        end)
+
+      assert log =~ "Tool 'my_tool' returned an invalid content item at index 1"
+      assert log =~ "got a string"
+      assert log =~ "Tool 'my_tool' returned an invalid content item at index 3"
+      assert log =~ "got an integer"
+      assert log =~ "at index 1"
+      # Should NOT warn about index 0 and 2 (valid items)
+      refute log =~ "at index 0"
+      refute log =~ "at index 2"
+    end
+
+    test "warns for a plain map item in list" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(
+            [%{type: "text", text: "wrong"}],
+            "test_tool"
+          )
+        end)
+
+      assert log =~ "invalid content item at index 0"
+      assert log =~ "got a map"
+    end
+
+    test "warns for a wrong struct type in list" do
+      log =
+        capture_log(fn ->
+          McpServer.Router.validate_tool_result(
+            [%McpServer.Completion{values: ["a"]}],
+            "test_tool"
+          )
+        end)
+
+      assert log =~ "invalid content item at index 0"
+      assert log =~ "%McpServer.Completion{}"
+    end
+
+    test "passes through the result unchanged" do
+      content = [McpServer.Tool.Content.text("hello")]
+
+      result = McpServer.Router.validate_tool_result(content, "test_tool")
+
+      assert result == content
+    end
+
+    test "passes through invalid results unchanged (for backward compatibility)" do
+      result = McpServer.Router.validate_tool_result("bare", "test_tool")
+      assert result == "bare"
+
+      result2 = McpServer.Router.validate_tool_result(42, "test_tool")
+      assert result2 == 42
+    end
+  end
+
+  describe "call_tool/3 warns on invalid tool results" do
+    import ExUnit.CaptureLog
+
+    defmodule BadController do
+      def echo(_conn, args) do
+        # Returns a bare string instead of a list
+        {:ok, Map.get(args, "message", "default")}
+      end
+
+      def calculate(_conn, args) do
+        a = Map.get(args, "a", 0)
+        b = Map.get(args, "b", 0)
+
+        # Returns a bare integer instead of a list
+        {:ok, a + b}
+      end
+    end
+
+    defmodule BadRouter do
+      use McpServer.Router
+
+      tool "echo", "Echo tool", BadController, :echo do
+        input_field("message", "Message", :string, required: true)
+      end
+
+      tool "calculate", "Calculate tool", BadController, :calculate do
+        input_field("a", "First number", :integer, required: true)
+        input_field("b", "Second number", :integer, required: true)
+      end
+    end
+
+    test "warns when tool returns a bare string" do
+      conn = mock_conn()
+
+      log =
+        capture_log(fn ->
+          # echo returns Map.get(args, "message", "default") which is a string
+          assert {:ok, _} = BadRouter.call_tool(conn, "echo", %{"message" => "Hello"})
+        end)
+
+      assert log =~ "Tool 'echo' returned a string instead of a list"
+    end
+
+    test "warns when tool returns a bare number" do
+      conn = mock_conn()
+
+      log =
+        capture_log(fn ->
+          # calculate returns a + b which is an integer
+          assert {:ok, _} = BadRouter.call_tool(conn, "calculate", %{"a" => 3, "b" => 4})
+        end)
+
+      assert log =~ "Tool 'calculate' returned an integer instead of a list"
+    end
+  end
+
+  describe "call_tool/3 does not warn for valid tool results" do
+    import ExUnit.CaptureLog
+
+    defmodule ValidContentController do
+      alias McpServer.Tool.Content, as: ToolContent
+
+      def text_tool(_conn, %{"message" => msg}) do
+        {:ok, [ToolContent.text(msg)]}
+      end
+
+      def mixed_tool(_conn, _args) do
+        {:ok,
+         [
+           ToolContent.text("hello"),
+           ToolContent.image(<<1, 2, 3>>, "image/png"),
+           ToolContent.resource("file:///test.txt", text: "content")
+         ]}
+      end
+
+      def error_tool(_conn, _args) do
+        {:error, "Something went wrong"}
+      end
+    end
+
+    defmodule ValidContentRouter do
+      use McpServer.Router
+
+      tool "text_tool", "Returns text", ValidContentController, :text_tool do
+        input_field("message", "Message", :string, required: true)
+      end
+
+      tool "mixed_tool", "Returns mixed content", ValidContentController, :mixed_tool do
+        input_field("data", "Data", :string)
+      end
+
+      tool "error_tool", "Always errors", ValidContentController, :error_tool do
+        input_field("data", "Data", :string)
+      end
+    end
+
+    test "no warning for tool returning a list of text content" do
+      conn = mock_conn()
+
+      log =
+        capture_log(fn ->
+          assert {:ok, [%McpServer.Tool.Content.Text{text: "hi"}]} =
+                   ValidContentRouter.call_tool(conn, "text_tool", %{"message" => "hi"})
+        end)
+
+      assert log == ""
+    end
+
+    test "no warning for tool returning mixed content types" do
+      conn = mock_conn()
+
+      log =
+        capture_log(fn ->
+          assert {:ok, contents} = ValidContentRouter.call_tool(conn, "mixed_tool", %{})
+          assert length(contents) == 3
+        end)
+
+      assert log == ""
+    end
+
+    test "no warning for tool returning {:error, reason}" do
+      conn = mock_conn()
+
+      log =
+        capture_log(fn ->
+          assert {:error, "Something went wrong"} =
+                   ValidContentRouter.call_tool(conn, "error_tool", %{})
+        end)
+
+      assert log == ""
     end
   end
 

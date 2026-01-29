@@ -20,9 +20,11 @@ defmodule McpServer.TelemetryTest do
 
   # Test controller
   defmodule TestController do
+    alias McpServer.Tool.Content, as: ToolContent
+
     def echo(_conn, args) do
       message = Map.get(args, "message", "default")
-      [%{"type" => "text", "text" => message}]
+      [ToolContent.text(message)]
     end
 
     def failing_tool(_conn, _args) do
