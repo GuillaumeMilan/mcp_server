@@ -5,25 +5,6 @@
 
 McpServer is an Elixir library that builds a DSL for defining Model Context Protocol (MCP) tools, prompts, and routers in Elixir. It allows you to easily expose tool endpoints with input/output schemas and validation, as well as define interactive prompts with argument completion.
 
-> **📢 Upgrading from v0.3.x?** See the [Migration Guide](MIGRATION_GUIDE.md) for a step-by-step upgrade path to v0.4.0's struct-based API.
-
-## What's New in v0.4.0
-
-Version 0.4.0 introduces **typed structs** throughout the library:
-
-- **Type-safe structures**: All MCP protocol types are now proper Elixir structs with `@enforce_keys` validation
-- **Better IDE support**: Autocomplete and inline documentation for all struct fields
-- **Compile-time safety**: Catch missing fields and typos at compile time, not runtime
-- **Clearer code**: Use `.field` syntax instead of `["field"]` for accessing data
-- **Automatic JSON encoding**: All structs implement `Jason.Encoder` with proper camelCase conversion
-
-**Breaking Changes:**
-- Controller functions now require `conn` as first parameter (arity change)
-- Router list functions renamed (e.g., `tools_list()` → `list_tools(conn)`)
-- All functions return typed structs instead of plain maps
-
-See [CHANGELOG_v0.4.0.md](CHANGELOG_v0.4.0.md) for complete details.
-
 ## Key Features
 
 - **Type-Safe Structs**: All MCP protocol structures are now typed Elixir structs with compile-time validation
@@ -40,7 +21,7 @@ See [CHANGELOG_v0.4.0.md](CHANGELOG_v0.4.0.md) for complete details.
 ```elixir
 def deps do
   [
-    {:mcp_server, "~> 0.4.0"},
+    {:mcp_server, "~> 0.7.0"},
     {:bandit, "~> 1.0"} # HTTP server
   ]
 end

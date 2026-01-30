@@ -468,9 +468,8 @@ content(..., mime_type: "text/plain")  # Compiler validates field name
 If you encounter issues during migration:
 
 1. Check the [STRUCTURES.md](./STRUCTURES.md) document for detailed struct definitions
-2. Review the [INTEGRATION_SUMMARY.md](./INTEGRATION_SUMMARY.md) for implementation details
-3. Look at the test files in `test/mcp_server/` for usage examples
-4. Open an issue on GitHub if you find a bug or need assistance
+2. Look at the test files in `test/mcp_server/` for usage examples
+3. Open an issue on GitHub if you find a bug or need assistance
 
 ## Version Compatibility
 
