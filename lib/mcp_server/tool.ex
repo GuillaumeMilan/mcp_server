@@ -12,6 +12,7 @@ defmodule McpServer.Tool do
   - `input_schema` - JSON Schema for input validation (can be a map or McpServer.Schema struct)
   - `annotations` - Optional metadata including title and behavioral hints
   - `callback` - Internal callback information (module/function pair for execution, not serialized to JSON)
+  - `_meta` - Optional metadata including UI configuration for MCP Apps (serialized to JSON as "_meta")
 
   ## Examples
 
@@ -38,7 +39,8 @@ defmodule McpServer.Tool do
     :description,
     :input_schema,
     :annotations,
-    :callback
+    :callback,
+    :_meta
   ]
 
   @type callback_info :: {module :: atom(), function :: atom()} | nil
@@ -48,7 +50,8 @@ defmodule McpServer.Tool do
           description: String.t(),
           input_schema: map() | McpServer.Schema.t(),
           annotations: McpServer.Tool.Annotations.t() | nil,
-          callback: callback_info()
+          callback: callback_info(),
+          _meta: McpServer.App.Meta.t() | nil
         }
 
   @doc """
@@ -97,7 +100,8 @@ defmodule McpServer.Tool do
       description: Keyword.fetch!(opts, :description),
       input_schema: Keyword.fetch!(opts, :input_schema),
       annotations: Keyword.get(opts, :annotations),
-      callback: Keyword.get(opts, :callback)
+      callback: Keyword.get(opts, :callback),
+      _meta: Keyword.get(opts, :_meta)
     }
   end
 end
@@ -198,6 +202,7 @@ defimpl Jason.Encoder, for: McpServer.Tool do
     }
 
     map = maybe_put(map, "annotations", value.annotations)
+    map = maybe_put(map, "_meta", value._meta)
 
     Jason.Encode.map(map, opts)
   end

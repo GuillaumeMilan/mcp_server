@@ -1840,6 +1840,8 @@ defmodule McpServer.Router do
   defp list_tools(tools) do
     tools
     |> Enum.map(fn {name, tool} ->
+      ui_uri = Keyword.get(tool.opts, :ui)
+
       quote do
         hints = Keyword.get(unquote(tool.opts), :hints, [])
         title = Keyword.get(unquote(tool.opts), :title, unquote(name))
@@ -1858,13 +1860,25 @@ defmodule McpServer.Router do
             open_world_hint: :closed_world not in hints
           )
 
+        # Create _meta struct if UI is defined
+        _meta =
+          case unquote(ui_uri) do
+            nil ->
+              nil
+
+            uri ->
+              ui = McpServer.App.UI.new(resource_uri: uri)
+              McpServer.App.Meta.new(ui: ui)
+          end
+
         # Create Tool struct
         McpServer.Tool.new(
           name: unquote(name),
           description: unquote(tool.description),
           input_schema: input_schema,
           annotations: annotations,
-          callback: {unquote(tool.controller), unquote(tool.function)}
+          callback: {unquote(tool.controller), unquote(tool.function)},
+          _meta: _meta
         )
       end
     end)
