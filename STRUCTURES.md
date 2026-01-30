@@ -4,10 +4,11 @@ This document describes all the data structures needed to support JSON encoding 
 
 ## Overview
 
-The MCP server requires structured data for three main capabilities:
+The MCP server requires structured data for four main capabilities:
 1. **Tools** - Callable functions with input/output validation
 2. **Prompts** - Interactive message templates with argument completion
 3. **Resources** - Data sources with URI-based access
+4. **Apps** - Interactive UI rendering via sandboxed iframes (MCP Apps extension)
 
 All structures must be JSON-encodable (using `Jason` library) and follow the MCP protocol specification.
 
@@ -100,20 +101,54 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 
 ### 1.4 Tool Call Result Structure
 
-**Purpose**: Response from tool execution  
-**Used by**: `call_tool/3` callback return value  
-**Return Format**: `{:ok, result} | {:error, message}`
+**Purpose**: Response from tool execution
+**Used by**: `call_tool/3` callback return value
+**Return Format**: `{:ok, content_list}` or `{:ok, %CallResult{}}` or `{:error, message}`
 
 ```elixir
-# Success response - any JSON-encodable structure
-{:ok, %{
-  "result" => any(),          # Tool-specific result
-  # ... other fields as needed
-}}
+# Standard response — list of content items
+{:ok, [McpServer.Tool.Content.text("Result text")]}
+
+# Extended response with structured content (MCP Apps)
+{:ok, McpServer.Tool.CallResult.new(
+  content: [McpServer.Tool.Content.text("Result text")],
+  structured_content: %{"key" => "value"},
+  _meta: %{"timestamp" => "2024-01-01"}
+)}
 
 # Error response
 {:error, "Error message"}
 ```
+
+### 1.5 Tool Call Result (Extended) — `McpServer.Tool.CallResult`
+
+**Purpose**: Extended tool result supporting structured content for UI rendering
+**Used by**: `call_tool/3` callback return value (MCP Apps)
+**Module**: `McpServer.Tool.CallResult`
+
+```elixir
+%McpServer.Tool.CallResult{
+  content: list(),                 # Standard content for model context (required)
+  structured_content: map() | nil, # Structured data for UI rendering (excluded from model context)
+  _meta: map() | nil               # Additional metadata (timestamps, source info)
+}
+```
+
+**JSON Example**:
+```json
+{
+  "content": [{"type": "text", "text": "Weather in NYC: 72F"}],
+  "structuredContent": {
+    "temperature": 72,
+    "unit": "fahrenheit",
+    "condition": "Sunny"
+  },
+  "_meta": {"source": "weather-api"},
+  "isError": false
+}
+```
+
+**Note**: `structuredContent` and `_meta` are omitted from the JSON response when `nil`.
 
 ---
 
@@ -365,9 +400,172 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 
 ---
 
-## 4. Common Structures
+## 4. MCP Apps Structures
 
-### 4.1 Connection Context
+These structures support the MCP Apps extension (`io.modelcontextprotocol/ui`).
+For usage details, see [Building MCP Apps](MCP_APPS.md).
+
+### 4.1 App Metadata Container — `McpServer.App.Meta`
+
+**Purpose**: Wraps UI configuration for tools and resources in `_meta`
+**Used by**: `list_tools/1`, `list_resources/1` responses
+**Module**: `McpServer.App.Meta`
+
+```elixir
+%McpServer.App.Meta{
+  ui: McpServer.App.UI.t() | McpServer.App.UIResourceMeta.t() | nil
+}
+```
+
+**JSON Example**:
+```json
+{"ui": {"resourceUri": "ui://weather/dashboard", "visibility": ["model", "app"]}}
+```
+
+### 4.2 Tool UI Metadata — `McpServer.App.UI`
+
+**Purpose**: Links tools to UI resources and controls visibility
+**Used by**: Nested in `McpServer.App.Meta` on tools
+**Module**: `McpServer.App.UI`
+
+```elixir
+%McpServer.App.UI{
+  resource_uri: String.t() | nil,           # URI of the UI resource
+  visibility: list(String.t())              # Default: ["model", "app"]
+}
+```
+
+**JSON Example**:
+```json
+{"resourceUri": "ui://weather/dashboard", "visibility": ["model", "app"]}
+```
+
+### 4.3 Resource UI Metadata — `McpServer.App.UIResourceMeta`
+
+**Purpose**: CSP, permissions, and sandbox settings for UI resources
+**Used by**: Nested in `McpServer.App.Meta` on resources
+**Module**: `McpServer.App.UIResourceMeta`
+
+```elixir
+%McpServer.App.UIResourceMeta{
+  csp: %{
+    connect_domains: list(String.t()),      # connect-src domains
+    resource_domains: list(String.t()),     # script/style/img/font-src domains
+    frame_domains: list(String.t()),        # frame-src domains
+    base_uri_domains: list(String.t())      # base-uri domains
+  } | nil,
+  permissions: %{
+    camera: map(),                          # Camera access
+    microphone: map(),                      # Microphone access
+    geolocation: map(),                     # Location access
+    clipboard_write: map()                  # Clipboard write
+  } | nil,
+  domain: String.t() | nil,                # Dedicated sandbox origin
+  prefers_border: boolean() | nil           # Visual boundary preference
+}
+```
+
+**JSON Example**:
+```json
+{
+  "csp": {
+    "connectDomains": ["api.example.com"],
+    "resourceDomains": ["cdn.example.com"]
+  },
+  "permissions": {"camera": {}, "clipboardWrite": {}},
+  "domain": "a904794854a047f6.claudemcpcontent.com",
+  "prefersBorder": true
+}
+```
+
+### 4.4 Host Capabilities — `McpServer.App.HostCapabilities`
+
+**Purpose**: Capabilities sent by the host to the view during `ui/initialize`
+**Used by**: `McpServer.App.Host.handle_initialize/2` return value
+**Module**: `McpServer.App.HostCapabilities`
+
+```elixir
+%McpServer.App.HostCapabilities{
+  experimental: map() | nil,
+  open_links: map() | nil,                 # %{} if host can open URLs
+  server_tools: %{list_changed: boolean()} | nil,
+  server_resources: %{list_changed: boolean()} | nil,
+  logging: map() | nil,                    # %{} if host accepts logs
+  sandbox: map() | nil                     # Sandbox configuration
+}
+```
+
+**JSON Example**:
+```json
+{
+  "openLinks": {},
+  "serverTools": {"listChanged": true},
+  "logging": {}
+}
+```
+
+### 4.5 Host Context — `McpServer.App.HostContext`
+
+**Purpose**: Environment information provided to the view during initialization
+**Used by**: `McpServer.App.Host.handle_initialize/2` return value
+**Module**: `McpServer.App.HostContext`
+
+```elixir
+%McpServer.App.HostContext{
+  tool_info: map() | nil,                  # Metadata of the instantiating tool call
+  theme: String.t() | nil,                 # "light" or "dark"
+  styles: map() | nil,                     # Style configuration
+  display_mode: String.t() | nil,          # "inline", "fullscreen", "pip"
+  available_display_modes: list(String.t()) | nil,
+  container_dimensions: map() | nil,       # %{width: n, height: n, ...}
+  locale: String.t() | nil,               # BCP 47 (e.g., "en-US")
+  time_zone: String.t() | nil,            # IANA (e.g., "America/New_York")
+  user_agent: String.t() | nil,           # Host application identifier
+  platform: String.t() | nil,             # "web", "desktop", "mobile"
+  device_capabilities: map() | nil,        # %{touch: bool, hover: bool}
+  safe_area_insets: map() | nil            # %{top: n, right: n, ...}
+}
+```
+
+**JSON Example**:
+```json
+{
+  "theme": "dark",
+  "displayMode": "inline",
+  "availableDisplayModes": ["inline", "fullscreen"],
+  "locale": "en-US",
+  "timeZone": "America/New_York",
+  "platform": "desktop"
+}
+```
+
+### 4.6 App Capabilities — `McpServer.App.AppCapabilities`
+
+**Purpose**: Capabilities declared by a view during `ui/initialize`
+**Used by**: Received by `McpServer.App.Host.handle_initialize/2`
+**Module**: `McpServer.App.AppCapabilities`
+
+```elixir
+%McpServer.App.AppCapabilities{
+  experimental: map() | nil,
+  tools: %{list_changed: boolean()} | nil,
+  available_display_modes: list(String.t()) | nil
+}
+```
+
+**JSON Example**:
+```json
+{
+  "tools": {"listChanged": true},
+  "availableDisplayModes": ["inline", "fullscreen"]
+}
+```
+
+---
+
+## 5. Common Structures
+
+### 5.1 Connection Context
 
 **Purpose**: Provides session and request context to all callbacks  
 **Not JSON-encoded**: Internal structure passed to all callbacks
@@ -379,7 +577,7 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 }
 ```
 
-### 4.2 Error Response Structure
+### 5.2 Error Response Structure
 
 **Purpose**: Standard error format for all callbacks  
 **Used by**: All callbacks can return error tuples
@@ -392,9 +590,9 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 
 ---
 
-## 5. JSON-RPC Structures
+## 6. JSON-RPC Structures
 
-### 5.1 JSON-RPC Request
+### 6.1 JSON-RPC Request
 
 **Purpose**: Incoming RPC request wrapper  
 **Used by**: HTTP transport layer
@@ -408,7 +606,7 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 }
 ```
 
-### 5.2 JSON-RPC Response
+### 6.2 JSON-RPC Response
 
 **Purpose**: Outgoing RPC response wrapper  
 **Used by**: HTTP transport layer
@@ -422,7 +620,7 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 }
 ```
 
-### 5.3 JSON-RPC Error
+### 6.3 JSON-RPC Error
 
 **Purpose**: Standard error format for JSON-RPC  
 **Used by**: Nested in JSON-RPC Response
@@ -444,9 +642,9 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 
 ---
 
-## 6. Implementation Notes
+## 7. Implementation Notes
 
-### 6.1 JSON Encoding Protocol
+### 7.1 JSON Encoding Protocol
 
 All structures should implement the `Jason.Encoder` protocol for proper JSON serialization:
 
@@ -463,13 +661,13 @@ defimpl Jason.Encoder, for: McpServer.Tool do
 end
 ```
 
-### 6.2 Field Naming Conventions
+### 7.2 Field Naming Conventions
 
 - **Elixir structs**: Use `snake_case` for field names (e.g., `session_id`)
 - **JSON output**: Use `camelCase` for field names (e.g., `"hasMore"`)
 - **Exception**: Special cases like `inputSchema`, `uriTemplate` (as per MCP spec)
 
-### 6.3 Optional Fields
+### 7.3 Optional Fields
 
 Optional fields (marked with `| nil`) should be omitted from JSON if `nil`:
 
@@ -480,42 +678,53 @@ map
 |> Jason.Encode.map(opts)
 ```
 
-### 6.4 Struct Modules Organization
+### 7.4 Struct Modules Organization
 
 Recommended module structure:
 
 ```
 lib/mcp_server/
 ├── tool.ex               # Tool, Tool.Annotations
+├── tool/
+│   └── call_result.ex    # Tool.CallResult (MCP Apps)
 ├── prompt.ex             # Prompt, Prompt.Argument, Prompt.Message, Prompt.MessageContent
 ├── resource.ex           # Resource, ResourceTemplate, Resource.Content, Resource.ReadResult
 ├── completion.ex         # Completion (shared by prompts and resources)
 ├── schema.ex             # Schema (for JSON Schema validation)
-└── json_rpc/
-    ├── request.ex        # Already exists
-    ├── response.ex       # Already exists
-    └── error.ex          # Already exists
+├── json_rpc/
+│   ├── request.ex
+│   ├── response.ex
+│   └── error.ex
+└── app/                  # MCP Apps extension
+    ├── meta.ex           # App.Meta (metadata container)
+    ├── ui.ex             # App.UI (tool UI metadata)
+    ├── ui_resource_meta.ex # App.UIResourceMeta (resource UI metadata)
+    ├── host.ex           # HostCapabilities, HostContext, AppCapabilities
+    ├── host_behaviour.ex # App.Host behaviour
+    ├── host_plug.ex      # App.HostPlug (Plug for view communication)
+    ├── messages.ex       # App.Messages (JSON-RPC helpers for ui/* methods)
+    └── csp.ex            # App.CSP (Content Security Policy generation)
 ```
 
 ---
 
-## 7. Validation Requirements
+## 8. Validation Requirements
 
-### 7.1 Tool Validation
+### 8.1 Tool Validation
 
 - Tool names must be unique within a router
 - Input/output field names must be unique within a tool
 - Field types must be valid JSON Schema types
 - Required fields must be properly declared
 
-### 7.2 Prompt Validation
+### 8.2 Prompt Validation
 
 - Prompt names must be unique within a router
 - Argument names must be unique within a prompt
 - Get and complete functions must be defined
 - Message roles must be "user", "assistant", or "system"
 
-### 7.3 Resource Validation
+### 8.3 Resource Validation
 
 - Resource names must be unique within a router
 - URIs must be valid
@@ -525,9 +734,9 @@ lib/mcp_server/
 
 ---
 
-## 8. Example Usage Patterns
+## 9. Example Usage Patterns
 
-### 8.1 Creating a Tool Definition
+### 9.1 Creating a Tool Definition
 
 ```elixir
 tool = %McpServer.Tool{
@@ -553,7 +762,7 @@ tool = %McpServer.Tool{
 }
 ```
 
-### 8.2 Creating Prompt Messages
+### 9.2 Creating Prompt Messages
 
 ```elixir
 messages = [
@@ -574,7 +783,7 @@ messages = [
 ]
 ```
 
-### 8.3 Creating Resource Content
+### 9.3 Creating Resource Content
 
 ```elixir
 content = %McpServer.Resource.Content{
@@ -592,7 +801,7 @@ read_result = %McpServer.Resource.ReadResult{
 
 ---
 
-## 9. Migration Path
+## 10. Migration Path
 
 To implement these structures in the existing codebase:
 
@@ -605,7 +814,7 @@ To implement these structures in the existing codebase:
 
 ---
 
-## 10. Summary Table
+## 11. Summary Table
 
 | Structure | Module | Purpose | Used By |
 |-----------|--------|---------|---------|
@@ -625,6 +834,13 @@ To implement these structures in the existing codebase:
 | `JsonRpc.Request` | `McpServer.JsonRpc` | RPC request | HTTP transport (exists) |
 | `JsonRpc.Response` | `McpServer.JsonRpc` | RPC response | HTTP transport (exists) |
 | `JsonRpc.Error` | `McpServer.JsonRpc` | RPC error | Nested in Response (exists) |
+| `Tool.CallResult` | `McpServer.Tool.CallResult` | Extended tool result with structured content | `call_tool/3` (MCP Apps) |
+| `App.Meta` | `McpServer.App.Meta` | Metadata container for UI config | `list_tools/1`, `list_resources/1` |
+| `App.UI` | `McpServer.App.UI` | Tool UI metadata | Nested in Meta (tools) |
+| `App.UIResourceMeta` | `McpServer.App.UIResourceMeta` | Resource UI metadata (CSP, permissions) | Nested in Meta (resources) |
+| `App.HostCapabilities` | `McpServer.App.HostCapabilities` | Host capabilities | `ui/initialize` response |
+| `App.HostContext` | `McpServer.App.HostContext` | Host environment context | `ui/initialize` response |
+| `App.AppCapabilities` | `McpServer.App.AppCapabilities` | View capabilities | `ui/initialize` request |
 
 ---
 

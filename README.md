@@ -246,6 +246,18 @@ The library provides typed structs for all MCP message types and data structures
 
 See **STRUCTURES.md** for a complete reference of all available structs and their fields.
 
+## MCP Apps (Interactive UIs)
+
+McpServer supports the MCP Apps extension (`io.modelcontextprotocol/ui`) for delivering interactive UIs alongside AI conversations. This includes:
+
+- **UI Tools** — Link tools to UI resources with `ui` and `visibility` options
+- **UI Resources** — Serve HTML content via `ui://` URIs with CSP and sandbox permissions
+- **Structured Content** — Return rich data for UI rendering via `McpServer.Tool.CallResult`
+- **Host Behaviour** — Implement `McpServer.App.Host` to manage view lifecycles
+- **Host Plug** — Mount `McpServer.App.HostPlug` to handle view-host communication
+
+See **[MCP_APPS.md](MCP_APPS.md)** for the complete guide.
+
 ## Usage & Testing
 
 ### Testing Tools

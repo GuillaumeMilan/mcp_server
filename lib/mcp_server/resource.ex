@@ -35,7 +35,8 @@ defmodule McpServer.Resource do
     :uri,
     :description,
     :mime_type,
-    :title
+    :title,
+    :_meta
   ]
 
   @type t :: %__MODULE__{
@@ -43,7 +44,8 @@ defmodule McpServer.Resource do
           uri: String.t(),
           description: String.t() | nil,
           mime_type: String.t() | nil,
-          title: String.t() | nil
+          title: String.t() | nil,
+          _meta: McpServer.App.Meta.t() | nil
         }
 
   @doc """
@@ -88,7 +90,8 @@ defmodule McpServer.Resource do
       uri: Keyword.fetch!(opts, :uri),
       description: Keyword.get(opts, :description),
       mime_type: Keyword.get(opts, :mime_type),
-      title: Keyword.get(opts, :title)
+      title: Keyword.get(opts, :title),
+      _meta: Keyword.get(opts, :_meta)
     }
   end
 end
@@ -130,7 +133,8 @@ defmodule McpServer.ResourceTemplate do
     :uri_template,
     :description,
     :mime_type,
-    :title
+    :title,
+    :_meta
   ]
 
   @type t :: %__MODULE__{
@@ -138,7 +142,8 @@ defmodule McpServer.ResourceTemplate do
           uri_template: String.t(),
           description: String.t() | nil,
           mime_type: String.t() | nil,
-          title: String.t() | nil
+          title: String.t() | nil,
+          _meta: McpServer.App.Meta.t() | nil
         }
 
   @doc """
@@ -186,7 +191,8 @@ defmodule McpServer.ResourceTemplate do
       uri_template: Keyword.fetch!(opts, :uri_template),
       description: Keyword.get(opts, :description),
       mime_type: Keyword.get(opts, :mime_type),
-      title: Keyword.get(opts, :title)
+      title: Keyword.get(opts, :title),
+      _meta: Keyword.get(opts, :_meta)
     }
   end
 end
@@ -230,7 +236,8 @@ defmodule McpServer.Resource.Content do
     :mime_type,
     :text,
     :blob,
-    :title
+    :title,
+    :_meta
   ]
 
   @type t :: %__MODULE__{
@@ -239,7 +246,8 @@ defmodule McpServer.Resource.Content do
           mime_type: String.t() | nil,
           text: String.t() | nil,
           blob: String.t() | nil,
-          title: String.t() | nil
+          title: String.t() | nil,
+          _meta: map() | nil
         }
 
   @doc """
@@ -291,7 +299,8 @@ defmodule McpServer.Resource.Content do
       mime_type: Keyword.get(opts, :mime_type),
       text: Keyword.get(opts, :text),
       blob: Keyword.get(opts, :blob),
-      title: Keyword.get(opts, :title)
+      title: Keyword.get(opts, :title),
+      _meta: Keyword.get(opts, :_meta)
     }
   end
 end
@@ -371,6 +380,7 @@ defimpl Jason.Encoder, for: McpServer.Resource do
     map = maybe_put(map, "description", value.description)
     map = maybe_put(map, "mimeType", value.mime_type)
     map = maybe_put(map, "title", value.title)
+    map = maybe_put(map, "_meta", value._meta)
 
     Jason.Encode.map(map, opts)
   end
@@ -389,6 +399,7 @@ defimpl Jason.Encoder, for: McpServer.ResourceTemplate do
     map = maybe_put(map, "description", value.description)
     map = maybe_put(map, "mimeType", value.mime_type)
     map = maybe_put(map, "title", value.title)
+    map = maybe_put(map, "_meta", value._meta)
 
     Jason.Encode.map(map, opts)
   end
@@ -408,6 +419,7 @@ defimpl Jason.Encoder, for: McpServer.Resource.Content do
     map = maybe_put(map, "text", value.text)
     map = maybe_put(map, "blob", value.blob)
     map = maybe_put(map, "title", value.title)
+    map = maybe_put(map, "_meta", value._meta)
 
     Jason.Encode.map(map, opts)
   end

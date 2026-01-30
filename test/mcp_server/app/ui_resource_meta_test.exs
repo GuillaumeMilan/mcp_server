@@ -1,0 +1,90 @@
+defmodule McpServer.App.UIResourceMetaTest do
+  use ExUnit.Case, async: true
+
+  alias McpServer.App.UIResourceMeta
+
+  describe "new/1" do
+    test "creates struct with defaults" do
+      meta = UIResourceMeta.new()
+      assert meta.csp == nil
+      assert meta.permissions == nil
+      assert meta.domain == nil
+      assert meta.prefers_border == nil
+    end
+
+    test "creates struct with all options" do
+      meta =
+        UIResourceMeta.new(
+          csp: %{connect_domains: ["api.example.com"], resource_domains: ["cdn.example.com"]},
+          permissions: %{camera: %{}, microphone: %{}},
+          domain: "a904794854a047f6.claudemcpcontent.com",
+          prefers_border: true
+        )
+
+      assert meta.csp.connect_domains == ["api.example.com"]
+      assert meta.csp.resource_domains == ["cdn.example.com"]
+      assert meta.permissions.camera == %{}
+      assert meta.permissions.microphone == %{}
+      assert meta.domain == "a904794854a047f6.claudemcpcontent.com"
+      assert meta.prefers_border == true
+    end
+  end
+
+  describe "Jason.Encoder" do
+    test "encodes empty meta as empty object" do
+      meta = UIResourceMeta.new()
+      assert Jason.encode!(meta) == "{}"
+    end
+
+    test "encodes CSP with camelCase keys" do
+      meta =
+        UIResourceMeta.new(
+          csp: %{
+            connect_domains: ["api.example.com"],
+            resource_domains: ["cdn.example.com"],
+            frame_domains: ["frame.example.com"],
+            base_uri_domains: ["base.example.com"]
+          }
+        )
+
+      json = Jason.decode!(Jason.encode!(meta))
+
+      assert json["csp"]["connectDomains"] == ["api.example.com"]
+      assert json["csp"]["resourceDomains"] == ["cdn.example.com"]
+      assert json["csp"]["frameDomains"] == ["frame.example.com"]
+      assert json["csp"]["baseUriDomains"] == ["base.example.com"]
+    end
+
+    test "encodes permissions with camelCase keys" do
+      meta =
+        UIResourceMeta.new(permissions: %{camera: %{}, clipboard_write: %{}})
+
+      json = Jason.decode!(Jason.encode!(meta))
+
+      assert json["permissions"]["camera"] == %{}
+      assert json["permissions"]["clipboardWrite"] == %{}
+    end
+
+    test "encodes prefersBorder" do
+      meta = UIResourceMeta.new(prefers_border: true)
+      json = Jason.decode!(Jason.encode!(meta))
+      assert json["prefersBorder"] == true
+    end
+
+    test "encodes domain" do
+      meta = UIResourceMeta.new(domain: "example.com")
+      json = Jason.decode!(Jason.encode!(meta))
+      assert json["domain"] == "example.com"
+    end
+
+    test "omits nil fields" do
+      meta = UIResourceMeta.new(domain: "example.com")
+      json = Jason.decode!(Jason.encode!(meta))
+
+      refute Map.has_key?(json, "csp")
+      refute Map.has_key?(json, "permissions")
+      refute Map.has_key?(json, "prefersBorder")
+      assert Map.has_key?(json, "domain")
+    end
+  end
+end
