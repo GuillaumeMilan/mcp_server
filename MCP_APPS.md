@@ -346,6 +346,17 @@ Each helper returns a JSON-RPC notification map (or request struct for teardown)
 
 ---
 
+## PostMessage Lifecycle
+
+MCP Apps communicate between the host and the iframe app using `window.postMessage()` with JSON-RPC 2.0 messages. There are two key lifecycle flows. The **initialization handshake** is initiated by the app — it sends a `ui/initialize` request, the host responds with capabilities and context, and the app confirms with `ui/notifications/initialized`. The host must not push any data until this handshake completes.
+
+The **tool execution & interactive phase** begins when the host streams tool arguments via `ui/notifications/tool-input-partial` and `ui/notifications/tool-input`,
+then delivers the result with `ui/notifications/tool-result` (or `ui/notifications/tool-cancelled`).
+Once the app has data, it can call server tools (`tools/call`), send messages to the chat (`ui/message`),
+update model context, request display mode changes, and more. For a complete deep-dive with sequence diagrams of interaction between the iframe and the MCP client, message formats, and a step-by-step walkthrough, see [`MCP_APPS_LIFECYCLE_FRONTEND.md`](MCP_APPS_LIFECYCLE_FRONTEND.md).
+
+---
+
 ## Content Security Policy
 
 The `McpServer.App.CSP` module generates Content-Security-Policy headers from `UIResourceMeta` configuration:
