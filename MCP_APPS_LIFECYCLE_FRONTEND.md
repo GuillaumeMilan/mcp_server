@@ -17,7 +17,7 @@ MCP Apps communicate between the **host** (the application embedding the iframe)
 
 On the host side, `McpServer.App.HostPlug` is an HTTP Plug that relays JSON-RPC messages received from a frontend bridge (which itself listens for `postMessage` events from the iframe and forwards them over HTTP). The notification helpers on `HostPlug` produce JSON-RPC maps that the frontend bridge sends back to the iframe via `postMessage`.
 
-For the iframe side, the `@modelcontextprotocol/ext-apps` npm package provides a `PostMessageTransport` that wraps `postMessage` into an MCP SDK-compatible transport. This library also ships a lightweight, dependency-free `McpApp` class at `priv/js/mcp_app.js`. Embed it in your HTML template with `McpServer.JS.mcp_app_script/0`.
+For the iframe side, the `@modelcontextprotocol/ext-apps` npm package provides a `PostMessageTransport` that wraps `postMessage` into an MCP SDK-compatible transport. This library also ships a lightweight, dependency-free `McpApp` class at `priv/js/mcp_app.js.eex`. Embed it in your HTML template with `McpServer.JS.mcp_app_script/1`.
 
 ---
 
@@ -330,7 +330,7 @@ end
 
 ### Step 3: Write the app HTML + JS (iframe side)
 
-For this phase we recommend using the lightweight `McpApp` helper at `priv/js/mcp_app.js` and embedding it directly into your HTML.
+For this phase we recommend using the lightweight `McpApp` helper at `priv/js/mcp_app.js.eex` and embedding it directly into your HTML.
 For this you can use library such as EEx to create the HTML template.
 
 Here is an example `dashboard.html.eex`:
@@ -427,5 +427,5 @@ Here is an example `dashboard.html.eex`:
 - [`MCP_APPS.md`](MCP_APPS.md) — Main MCP Apps guide
 - `McpServer.App.Messages` — JSON-RPC message encode/decode helpers
 - `McpServer.App.Lifecycle` — Lifecycle orchestration helpers
-- `McpServer.JS.mcp_app_script/0` — Embed the `McpApp` JS class in your HTML templates
+- `McpServer.JS.mcp_app_script/1` — Embed the `McpApp` JS class in your HTML templates
 - [MCP Apps Specification (SEP-1865)](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx)

@@ -326,6 +326,7 @@ defmodule McpServer.HttpPlug do
     |> put_private(:session_id, session_id)
     |> then(fn conn ->
       %McpServer.Conn{} = mcp_conn = opts.init_conn_callback.(conn)
+      mcp_conn = McpServer.Conn.put_private(mcp_conn, :server_info, opts.server_info)
       put_private(conn, :mcp_conn, mcp_conn)
     end)
     |> put_resp_header("cache-control", "no-cache")

@@ -16,9 +16,29 @@
  *   // Later — call a server tool, send messages, etc.
  *   const result = await app.callServerTool("get_weather", { location: "NYC" });
  *   await app.sendMessage("assistant", { type: "text", text: "Done!" });
+ *
+ * Options:
+ *
+ *   const app = new McpApp({
+ *     debug: true,                              // log JSON-RPC traffic
+ *     appInfo: { name: "my-app", version: "1.0.0" },
+ *     protocolVersion: "0.3",                   // default
+ *   });
  */
 class McpApp {
-  constructor() {
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.debug=false] - Log all JSON-RPC traffic to the console.
+   * @param {string} [options.protocolVersion="0.3"] - MCP Apps protocol version.
+   * @param {object} [options.appInfo] - App identity sent during initialization.
+   * @param {string} options.appInfo.name - App name.
+   * @param {string} options.appInfo.version - App version.
+   */
+  constructor(options) {
+    var opts = options || {};
+    this._debug = !!opts.debug;
+    this._protocolVersion = opts.protocolVersion || "<%= @protocol_version %>";
+    this._appInfo = opts.appInfo || <%= @app_info_json %>;
     this._nextId = 1;
     this._pending = new Map(); // id -> { resolve, reject }
     this._listener = null;
@@ -50,6 +70,8 @@ class McpApp {
     this._installListener();
 
     return this._sendRequest("ui/initialize", {
+      protocolVersion: this._protocolVersion,
+      appInfo: this._appInfo,
       appCapabilities: appCapabilities || {},
     }).then(function (result) {
       this._connected = true;
@@ -174,6 +196,10 @@ class McpApp {
     var data = event.data;
     if (!data || typeof data !== "object" || data.jsonrpc !== "2.0") return;
 
+    if (this._debug) {
+      console.log("[McpApp] ← recv", data);
+    }
+
     // Response to a pending request
     if (data.id != null && (data.result !== undefined || data.error !== undefined)) {
       var entry = this._pending.get(data.id);
@@ -246,6 +272,9 @@ class McpApp {
   }
 
   _postMessage(msg) {
+    if (this._debug) {
+      console.log("[McpApp] → send", msg);
+    }
     if (window.parent && window.parent !== window) {
       window.parent.postMessage(msg, "*");
     }
