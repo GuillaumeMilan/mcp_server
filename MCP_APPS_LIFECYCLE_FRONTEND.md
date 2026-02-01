@@ -292,7 +292,7 @@ defmodule MyApp.Router do
 
   tool "analyze_data", "Analyzes uploaded data", MyApp.DataController, :analyze,
     ui: "ui://myapp/dashboard",
-    visibility: ["model", "app"] do
+    visibility: [:model, :app] do
     input_field("dataset", "Dataset name", :string, required: true)
   end
 

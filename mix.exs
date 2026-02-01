@@ -99,8 +99,10 @@ defmodule McpServer.MixProject do
         Apps: [
           McpServer.App.CSP,
           McpServer.App.Meta,
-          McpServer.App.UI,
-          McpServer.App.UIResourceMeta
+          McpServer.Tool.Meta.UI,
+          McpServer.Resource.Meta.UI,
+          McpServer.Resource.Meta.UI.CSP,
+          McpServer.Resource.Meta.UI.Permissions
         ],
         Testing: [
           McpServer.Test

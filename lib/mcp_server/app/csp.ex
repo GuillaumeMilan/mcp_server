@@ -1,6 +1,6 @@
 defmodule McpServer.App.CSP do
   @moduledoc """
-  Generates Content-Security-Policy headers from `McpServer.App.UIResourceMeta` configuration.
+  Generates Content-Security-Policy headers from `McpServer.Resource.Meta.UI` configuration.
 
   Per the MCP Apps specification, UI resources run in sandboxed iframes with
   restrictive CSP defaults. Servers can declare additional domains in their
@@ -19,7 +19,7 @@ defmodule McpServer.App.CSP do
 
   ## Custom Policy
 
-  When a `UIResourceMeta` declares CSP domains, they are merged into the
+  When a `Resource.Meta.UI` declares CSP domains, they are merged into the
   appropriate directives:
 
   - `connect_domains` → `connect-src`
@@ -28,10 +28,11 @@ defmodule McpServer.App.CSP do
   - `base_uri_domains` → `base-uri`
   """
 
-  alias McpServer.App.UIResourceMeta
+  alias McpServer.Resource.Meta.UI
+  alias McpServer.Resource.Meta.UI.CSP, as: CSPStruct
 
   @doc """
-  Generates a CSP header string from a `UIResourceMeta` struct.
+  Generates a CSP header string from a `McpServer.Resource.Meta.UI` struct.
 
   Returns the restrictive default when `nil` is passed or when no CSP
   is configured on the struct.
@@ -41,24 +42,24 @@ defmodule McpServer.App.CSP do
       iex> McpServer.App.CSP.generate(nil)
       "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none'"
 
-      iex> meta = McpServer.App.UIResourceMeta.new(csp: %{connect_domains: ["api.example.com"]})
+      iex> meta = McpServer.Resource.Meta.UI.new(csp: McpServer.Resource.Meta.UI.CSP.new(connect_domains: ["api.example.com"]))
       iex> McpServer.App.CSP.generate(meta)
       "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'self' api.example.com; font-src 'self'"
   """
-  @spec generate(UIResourceMeta.t() | nil) :: String.t()
+  @spec generate(UI.t() | nil) :: String.t()
   def generate(nil) do
     default_csp()
   end
 
-  def generate(%UIResourceMeta{csp: nil}) do
+  def generate(%UI{csp: nil}) do
     default_csp()
   end
 
-  def generate(%UIResourceMeta{csp: csp}) when is_map(csp) do
-    connect_domains = Map.get(csp, :connect_domains, [])
-    resource_domains = Map.get(csp, :resource_domains, [])
-    frame_domains = Map.get(csp, :frame_domains, [])
-    base_uri_domains = Map.get(csp, :base_uri_domains, [])
+  def generate(%UI{csp: %CSPStruct{} = csp}) do
+    connect_domains = csp.connect_domains
+    resource_domains = csp.resource_domains
+    frame_domains = csp.frame_domains
+    base_uri_domains = csp.base_uri_domains
 
     directives = [
       {"default-src", ["'none'"]},

@@ -25,7 +25,7 @@ defmodule MyApp.Router do
 
   tool "get_weather", "Gets weather data", MyApp.WeatherController, :get_weather,
     ui: "ui://weather-server/dashboard",
-    visibility: ["model", "app"] do
+    visibility: [:model, :app] do
     input_field("location", "Location", :string, required: true)
   end
 end
@@ -34,10 +34,10 @@ end
 **Options:**
 
 - `ui` — URI of the UI resource that renders this tool's results. Must match a declared `ui://` resource.
-- `visibility` — Controls who can access the tool:
-  - `["model", "app"]` (default when `ui` is set) — Visible to both the AI model and the view
-  - `["app"]` — Only callable from within a view (hidden from the model by the host)
-  - `["model"]` — Only visible to the model
+- `visibility` — Controls who can access the tool (list of `McpServer.Tool.Meta.UI.visibility()` atoms):
+  - `[:model, :app]` (default when `ui` is set) — Visible to both the AI model and the view
+  - `[:app]` — Only callable from within a view (hidden from the model by the host)
+  - `[:model]` — Only visible to the model
 
 ### Declaring UI Resources
 
@@ -195,7 +195,7 @@ defmodule WeatherApp.Router do
 
   tool "get_weather", "Gets current weather", WeatherApp.Controller, :get_weather,
     ui: "ui://weather/dashboard",
-    visibility: ["model", "app"] do
+    visibility: [:model, :app] do
     input_field("location", "City name", :string, required: true)
   end
 

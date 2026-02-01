@@ -191,15 +191,15 @@ defmodule McpServer.Router do
 
       tool "get_weather", "Gets weather data", WeatherController, :get,
         ui: "ui://weather-server/dashboard",
-        visibility: ["model", "app"] do
+        visibility: [:model, :app] do
         input_field("location", "Location", :string, required: true)
       end
 
   Options:
   - `ui: "ui://..."` — URI of a UI resource that renders tool results
-  - `visibility: ["model", "app"]` — Controls who can access the tool.
-    `"model"` makes it visible to the AI model, `"app"` makes it callable
-    from views. Defaults to `["model", "app"]` when `ui` is set.
+  - `visibility: [:model, :app]` — Controls who can access the tool.
+    `:model` makes it visible to the AI model, `:app` makes it callable
+    from views. Defaults to `[:model, :app]` when `ui` is set.
 
   When `ui` is set, `tools/list` responses include `_meta.ui` with
   `resourceUri` and `visibility`.
@@ -934,7 +934,7 @@ defmodule McpServer.Router do
       if statements.csp || statements.permissions || statements.app_domain ||
            statements.prefers_border != nil do
         ui_resource_meta =
-          McpServer.App.UIResourceMeta.new(
+          McpServer.Resource.Meta.UI.new(
             csp: build_csp_map(statements.csp),
             permissions: build_permissions_map(statements.permissions),
             domain: statements.app_domain,
@@ -1992,9 +1992,9 @@ defmodule McpServer.Router do
 
             {uri, vis} ->
               ui =
-                McpServer.App.UI.new(
+                McpServer.Tool.Meta.UI.new(
                   resource_uri: uri,
-                  visibility: vis || ["model", "app"]
+                  visibility: vis || [:model, :app]
                 )
 
               McpServer.App.Meta.new(ui: ui)
@@ -2106,42 +2106,13 @@ defmodule McpServer.Router do
   defp build_csp_map(nil), do: nil
 
   defp build_csp_map(opts) when is_list(opts) do
-    map = %{}
-
-    map =
-      if opts[:connect_domains],
-        do: Map.put(map, :connect_domains, opts[:connect_domains]),
-        else: map
-
-    map =
-      if opts[:resource_domains],
-        do: Map.put(map, :resource_domains, opts[:resource_domains]),
-        else: map
-
-    map =
-      if opts[:frame_domains],
-        do: Map.put(map, :frame_domains, opts[:frame_domains]),
-        else: map
-
-    map =
-      if opts[:base_uri_domains],
-        do: Map.put(map, :base_uri_domains, opts[:base_uri_domains]),
-        else: map
-
-    if map == %{}, do: nil, else: map
+    if Enum.any?(opts), do: McpServer.Resource.Meta.UI.CSP.new(opts), else: nil
   end
 
-  # Build a permissions map from keyword list options
+  # Build a permissions struct from keyword list options
   defp build_permissions_map(nil), do: nil
 
   defp build_permissions_map(opts) when is_list(opts) do
-    map = %{}
-
-    map = if opts[:camera], do: Map.put(map, :camera, %{}), else: map
-    map = if opts[:microphone], do: Map.put(map, :microphone, %{}), else: map
-    map = if opts[:geolocation], do: Map.put(map, :geolocation, %{}), else: map
-    map = if opts[:clipboard_write], do: Map.put(map, :clipboard_write, %{}), else: map
-
-    if map == %{}, do: nil, else: map
+    if Enum.any?(opts), do: McpServer.Resource.Meta.UI.Permissions.new(opts), else: nil
   end
 end

@@ -43,7 +43,7 @@ defmodule McpServer.App.HttpPlugIntegrationTest do
 
     tool "get_data", "Gets data with UI", UIToolController, :get_data,
       ui: "ui://test/dashboard",
-      visibility: ["model", "app"] do
+      visibility: [:model, :app] do
       input_field("key", "Data key", :string, required: true)
     end
 

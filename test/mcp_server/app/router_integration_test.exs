@@ -72,14 +72,14 @@ defmodule McpServer.App.RouterIntegrationTest do
     # Tool with UI metadata
     tool "get_weather", "Gets weather data", UIController, :get_weather,
       ui: "ui://weather/dashboard",
-      visibility: ["model", "app"] do
+      visibility: [:model, :app] do
       input_field("location", "Location", :string, required: true)
     end
 
     # Tool with UI but app-only visibility
     tool "get_weather_meta", "Gets weather with meta", UIController, :get_weather_with_meta,
       ui: "ui://weather/dashboard",
-      visibility: ["app"] do
+      visibility: [:app] do
       input_field("location", "Location", :string, required: true)
     end
 
@@ -123,10 +123,10 @@ defmodule McpServer.App.RouterIntegrationTest do
       {:ok, tools} = UIRouter.list_tools(mock_conn())
 
       weather_tool = Enum.find(tools, &(&1.name == "get_weather"))
-      assert weather_tool._meta.ui.visibility == ["model", "app"]
+      assert weather_tool._meta.ui.visibility == [:model, :app]
 
       app_only_tool = Enum.find(tools, &(&1.name == "get_weather_meta"))
-      assert app_only_tool._meta.ui.visibility == ["app"]
+      assert app_only_tool._meta.ui.visibility == [:app]
     end
 
     test "tools without ui option have nil _meta" do

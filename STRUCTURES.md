@@ -413,7 +413,7 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
 
 ```elixir
 %McpServer.App.Meta{
-  ui: McpServer.App.UI.t() | McpServer.App.UIResourceMeta.t() | nil
+  ui: McpServer.Tool.Meta.UI.t() | McpServer.Resource.Meta.UI.t() | nil
 }
 ```
 
@@ -422,17 +422,20 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
 {"ui": {"resourceUri": "ui://weather/dashboard", "visibility": ["model", "app"]}}
 ```
 
-### 4.2 Tool UI Metadata — `McpServer.App.UI`
+### 4.2 Tool UI Metadata — `McpServer.Tool.Meta.UI`
 
 **Purpose**: Links tools to UI resources and controls visibility
 **Used by**: Nested in `McpServer.App.Meta` on tools
-**Module**: `McpServer.App.UI`
+**Module**: `McpServer.Tool.Meta.UI`
 
 ```elixir
-%McpServer.App.UI{
+%McpServer.Tool.Meta.UI{
   resource_uri: String.t() | nil,           # URI of the UI resource
-  visibility: list(String.t())              # Default: ["model", "app"]
+  visibility: [McpServer.Tool.Meta.UI.visibility()]  # Default: [:model, :app]
 }
+
+# visibility is an enum type:
+@type visibility :: :model | :app
 ```
 
 **JSON Example**:
@@ -440,28 +443,34 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
 {"resourceUri": "ui://weather/dashboard", "visibility": ["model", "app"]}
 ```
 
-### 4.3 Resource UI Metadata — `McpServer.App.UIResourceMeta`
+### 4.3 Resource UI Metadata — `McpServer.Resource.Meta.UI`
 
 **Purpose**: CSP, permissions, and sandbox settings for UI resources
-**Used by**: Nested in `McpServer.App.Meta` on resources
-**Module**: `McpServer.App.UIResourceMeta`
+**Used by**: Nested in `_meta` on resources
+**Module**: `McpServer.Resource.Meta.UI`
 
 ```elixir
-%McpServer.App.UIResourceMeta{
-  csp: %{
-    connect_domains: list(String.t()),      # connect-src domains
-    resource_domains: list(String.t()),     # script/style/img/font-src domains
-    frame_domains: list(String.t()),        # frame-src domains
-    base_uri_domains: list(String.t())      # base-uri domains
-  } | nil,
-  permissions: %{
-    camera: map(),                          # Camera access
-    microphone: map(),                      # Microphone access
-    geolocation: map(),                     # Location access
-    clipboard_write: map()                  # Clipboard write
-  } | nil,
+%McpServer.Resource.Meta.UI{
+  csp: McpServer.Resource.Meta.UI.CSP.t() | nil,
+  permissions: McpServer.Resource.Meta.UI.Permissions.t() | nil,
   domain: String.t() | nil,                # Dedicated sandbox origin
   prefers_border: boolean() | nil           # Visual boundary preference
+}
+
+# CSP struct
+%McpServer.Resource.Meta.UI.CSP{
+  connect_domains: list(String.t()),        # connect-src domains
+  resource_domains: list(String.t()),       # script/style/img/font-src domains
+  frame_domains: list(String.t()),          # frame-src domains
+  base_uri_domains: list(String.t())        # base-uri domains
+}
+
+# Permissions struct
+%McpServer.Resource.Meta.UI.Permissions{
+  camera: boolean(),                        # Camera access
+  microphone: boolean(),                    # Microphone access
+  geolocation: boolean(),                   # Location access
+  clipboard_write: boolean()                # Clipboard write
 }
 ```
 
@@ -603,7 +612,15 @@ Recommended module structure:
 lib/mcp_server/
 ├── tool.ex               # Tool, Tool.Annotations
 ├── tool/
-│   └── call_result.ex    # Tool.CallResult (MCP Apps)
+│   ├── call_result.ex    # Tool.CallResult (MCP Apps)
+│   └── meta/
+│       └── ui.ex         # Tool.Meta.UI (tool UI metadata)
+├── resource/
+│   └── meta/
+│       ├── ui.ex         # Resource.Meta.UI (resource UI metadata)
+│       └── ui/
+│           ├── csp.ex        # Resource.Meta.UI.CSP
+│           └── permissions.ex # Resource.Meta.UI.Permissions
 ├── prompt.ex             # Prompt, Prompt.Argument, Prompt.Message, Prompt.MessageContent
 ├── resource.ex           # Resource, ResourceTemplate, Resource.Content, Resource.ReadResult
 ├── completion.ex         # Completion (shared by prompts and resources)
@@ -614,8 +631,7 @@ lib/mcp_server/
 │   └── error.ex
 └── app/                  # MCP Apps extension
     ├── meta.ex           # App.Meta (metadata container)
-    ├── ui.ex             # App.UI (tool UI metadata)
-    ├── ui_resource_meta.ex # App.UIResourceMeta (resource UI metadata)
+    ├── ui_resource_meta.ex # App.UIResourceMeta (deprecated)
     └── csp.ex            # App.CSP (Content Security Policy generation)
 ```
 
@@ -749,8 +765,10 @@ To implement these structures in the existing codebase:
 | `JsonRpc.Error` | `McpServer.JsonRpc` | RPC error | Nested in Response (exists) |
 | `Tool.CallResult` | `McpServer.Tool.CallResult` | Extended tool result with structured content | `call_tool/3` (MCP Apps) |
 | `App.Meta` | `McpServer.App.Meta` | Metadata container for UI config | `list_tools/1`, `list_resources/1` |
-| `App.UI` | `McpServer.App.UI` | Tool UI metadata | Nested in Meta (tools) |
-| `App.UIResourceMeta` | `McpServer.App.UIResourceMeta` | Resource UI metadata (CSP, permissions) | Nested in Meta (resources) |
+| `Tool.Meta.UI` | `McpServer.Tool.Meta.UI` | Tool UI metadata | Nested in Meta (tools) |
+| `Resource.Meta.UI` | `McpServer.Resource.Meta.UI` | Resource UI metadata (CSP, permissions) | Nested in Meta (resources) |
+| `Resource.Meta.UI.CSP` | `McpServer.Resource.Meta.UI.CSP` | CSP domain configuration | Nested in Resource.Meta.UI |
+| `Resource.Meta.UI.Permissions` | `McpServer.Resource.Meta.UI.Permissions` | Sandbox permissions | Nested in Resource.Meta.UI |
 
 ---
 

@@ -2,8 +2,8 @@ defmodule McpServer.App.MetaTest do
   use ExUnit.Case, async: true
 
   alias McpServer.App.Meta
-  alias McpServer.App.UI
-  alias McpServer.App.UIResourceMeta
+  alias McpServer.Tool.Meta.UI
+  alias McpServer.Resource.Meta.UI, as: UIResourceMeta
 
   describe "new/1" do
     test "creates struct with defaults" do
