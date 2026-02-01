@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-01
+
+### MCP Apps Support
+
+Implements the [SEP-1865](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx) specification for interactive UIs delivered through sandboxed iframes alongside AI conversations.
+
+### Added
+
+- **Tool & Resource metadata** — `Meta` and `Meta.UI` structs for both tools and resources
+- **UI resources** — `ui://` URI scheme with `text/html;profile=mcp-app` MIME type
+- **Tool visibility** — `:model`, `:app`, or both, controlling who can invoke a tool
+- **Structured content** — `Tool.CallResult` for returning rich data alongside text
+- **CSP & permissions** — `Resource.Meta.UI.CSP` and `Resource.Meta.UI.Permissions` for iframe sandboxing
+- **Router DSL extensions** — `ui:` and `visibility:` options on `tool`, new `resource` macro for UI resources
+- **JS bridge** — EEx template (`priv/js/mcp_app.js.eex`) for frontend ↔ server communication
+
 ## [0.7.0] - 2025-01-29
 
 ### Major Feature: Tool Content Helpers & Result Validation
@@ -350,6 +366,7 @@ See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete upgrade instructions.
 
 ## Links
 
+- [0.8.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.7.0...v0.8.0
 - [0.7.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.6.0...v0.7.0
 - [0.6.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.5.0...v0.6.0
 - [0.5.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.4.0...v0.5.0

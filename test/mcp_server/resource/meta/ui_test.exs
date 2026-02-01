@@ -17,7 +17,8 @@ defmodule McpServer.Resource.Meta.UITest do
     test "creates struct with all options" do
       meta =
         UI.new(
-          csp: CSP.new(connect_domains: ["api.example.com"], resource_domains: ["cdn.example.com"]),
+          csp:
+            CSP.new(connect_domains: ["api.example.com"], resource_domains: ["cdn.example.com"]),
           permissions: Permissions.new(camera: true, microphone: true),
           domain: "a904794854a047f6.claudemcpcontent.com",
           prefers_border: true
@@ -41,12 +42,13 @@ defmodule McpServer.Resource.Meta.UITest do
     test "encodes CSP with camelCase keys" do
       meta =
         UI.new(
-          csp: CSP.new(
-            connect_domains: ["api.example.com"],
-            resource_domains: ["cdn.example.com"],
-            frame_domains: ["frame.example.com"],
-            base_uri_domains: ["base.example.com"]
-          )
+          csp:
+            CSP.new(
+              connect_domains: ["api.example.com"],
+              resource_domains: ["cdn.example.com"],
+              frame_domains: ["frame.example.com"],
+              base_uri_domains: ["base.example.com"]
+            )
         )
 
       json = Jason.decode!(Jason.encode!(meta))

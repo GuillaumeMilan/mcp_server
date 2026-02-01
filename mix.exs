@@ -6,7 +6,7 @@ defmodule McpServer.MixProject do
   def project do
     [
       app: :mcp_server,
-      version: "0.7.1",
+      version: "0.8.0",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -28,7 +28,7 @@ defmodule McpServer.MixProject do
         "GitHub" => @source_url,
         "MCP" => "https://modelcontextprotocol.io/introduction"
       },
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib priv .formatter.exs mix.exs README.md LICENSE)
     ]
   end
 

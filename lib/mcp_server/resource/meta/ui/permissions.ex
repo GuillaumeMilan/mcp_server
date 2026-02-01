@@ -18,12 +18,10 @@ defmodule McpServer.Resource.Meta.UI.Permissions do
       %McpServer.Resource.Meta.UI.Permissions{camera: true, geolocation: true}
   """
 
-  defstruct [
-    camera: false,
-    microphone: false,
-    geolocation: false,
-    clipboard_write: false
-  ]
+  defstruct camera: false,
+            microphone: false,
+            geolocation: false,
+            clipboard_write: false
 
   @type t :: %__MODULE__{
           camera: boolean(),

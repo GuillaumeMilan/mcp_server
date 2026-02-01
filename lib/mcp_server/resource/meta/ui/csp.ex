@@ -24,12 +24,10 @@ defmodule McpServer.Resource.Meta.UI.CSP do
       }
   """
 
-  defstruct [
-    connect_domains: [],
-    resource_domains: [],
-    frame_domains: [],
-    base_uri_domains: []
-  ]
+  defstruct connect_domains: [],
+            resource_domains: [],
+            frame_domains: [],
+            base_uri_domains: []
 
   @type t :: %__MODULE__{
           connect_domains: list(String.t()),
