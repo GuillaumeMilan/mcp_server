@@ -159,28 +159,6 @@ update model context, request display mode changes, and more. For a complete dee
 
 ## Content Security Policy
 
-The `McpServer.App.CSP` module generates Content-Security-Policy headers from `UIResourceMeta` configuration:
-
-```elixir
-alias McpServer.App.{CSP, UIResourceMeta}
-
-# Restrictive default (no network access)
-CSP.generate(nil)
-# => "default-src 'none'; script-src 'self' 'unsafe-inline'; ..."
-
-# Custom CSP from resource metadata
-meta = UIResourceMeta.new(
-  csp: %{
-    connect_domains: ["api.example.com"],
-    resource_domains: ["cdn.example.com"]
-  }
-)
-CSP.generate(meta)
-# => "default-src 'none'; script-src 'self' 'unsafe-inline' cdn.example.com; ..."
-```
-
-Use this when building the iframe sandbox on the host side to set the `Content-Security-Policy` header.
-
 ---
 
 ## Complete Example
@@ -275,6 +253,5 @@ end
 ## See Also
 
 - `McpServer.Router` — DSL for defining tools, prompts, and resources
-- `McpServer.App.CSP` — Content Security Policy generation
 - `STRUCTURES.md` — Data structure reference for all App types
 - [MCP Apps Specification](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx)

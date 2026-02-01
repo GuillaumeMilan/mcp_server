@@ -643,8 +643,6 @@ lib/mcp_server/
 │   ├── request.ex
 │   ├── response.ex
 │   └── error.ex
-└── app/                  # MCP Apps extension
-    └── csp.ex            # App.CSP (Content Security Policy generation)
 ```
 
 ---

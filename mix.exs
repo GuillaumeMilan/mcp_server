@@ -97,7 +97,6 @@ defmodule McpServer.MixProject do
           McpServer.JsonRpc
         ],
         Apps: [
-          McpServer.App.CSP,
           McpServer.Tool.Meta,
           McpServer.Resource.Meta,
           McpServer.Tool.Meta.UI,
