@@ -21,7 +21,7 @@ McpServer is an Elixir library that builds a DSL for defining Model Context Prot
 ```elixir
 def deps do
   [
-    {:mcp_server, "~> 0.7.0"},
+    {:mcp_server, "~> 0.8.0"},
     {:bandit, "~> 1.0"} # HTTP server
   ]
 end
@@ -35,21 +35,22 @@ Create a module that uses `McpServer.Router` and defines your tools and prompts.
 defmodule MyApp.MyController do
   import McpServer.Controller, only: [message: 3, completion: 2, content: 3]
   alias McpServer.Tool.Content, as: ToolContent
+  alias McpServer.Tool.CallResult
 
   # Tool functions - all receive conn as first parameter
-  # Return a list of content items using McpServer.Tool.Content
+  # Return {:ok, CallResult.new(content: [...])} or {:error, reason}
   def echo(_conn, args) do
-    [ToolContent.text(Map.get(args, "message", "default"))]
+    {:ok, CallResult.new(content: [ToolContent.text(Map.get(args, "message", "default"))])}
   end
 
   def greet(conn, args) do
     name = Map.get(args, "name", "World")
-    [ToolContent.text("Hello, #{name}, you are connected with session #{conn.session_id}!")]
+    {:ok, CallResult.new(content: [ToolContent.text("Hello, #{name}, you are connected with session #{conn.session_id}!")])}
   end
 
   def calculate(_conn, args) do
     result = Map.get(args, "a", 0) + Map.get(args, "b", 0)
-    [ToolContent.text("#{result}")]
+    {:ok, CallResult.new(content: [ToolContent.text("#{result}")])}
   end
 
   # Prompt functions - all receive conn as first parameter
@@ -158,34 +159,42 @@ end
 
 ### Controller Implementation
 
-Tool controller functions receive `conn` and `args`, and return a list of content items built with `McpServer.Tool.Content`:
+Tool controller functions receive `conn` and `args`, and must return `{:ok, CallResult.new(...)}` or `{:error, reason}`:
 
 ```elixir
 alias McpServer.Tool.Content, as: ToolContent
+alias McpServer.Tool.CallResult
 
 # Return text content
 def my_tool(_conn, %{"query" => query}) do
-  [ToolContent.text("Results for: #{query}")]
+  {:ok, CallResult.new(content: [ToolContent.text("Results for: #{query}")])}
 end
 
 # Return multiple content types
 def generate_chart(_conn, %{"data" => data}) do
   chart_image = create_chart(data)
-  [
+  {:ok, CallResult.new(content: [
     ToolContent.text("Chart generated successfully"),
     ToolContent.image(chart_image, "image/png")
-  ]
+  ])}
 end
 
-# Return embedded resource content
-def read_file(_conn, %{"path" => path}) do
-  [ToolContent.resource("file://#{path}", text: File.read!(path), mimeType: "text/plain")]
+# Return structured content for UI rendering
+def get_weather(_conn, %{"location" => location}) do
+  weather = fetch_weather(location)
+  {:ok, CallResult.new(
+    content: [ToolContent.text("Weather in #{location}: #{weather.temp}°F")],
+    structured_content: %{
+      "temperature" => weather.temp,
+      "humidity" => weather.humidity
+    }
+  )}
 end
 
 # Signal an error
 def risky_tool(_conn, %{"input" => input}) do
   case process(input) do
-    {:ok, result} -> [ToolContent.text(result)]
+    {:ok, result} -> {:ok, CallResult.new(content: [ToolContent.text(result)])}
     {:error, reason} -> {:error, reason}
   end
 end
@@ -260,59 +269,54 @@ See **[MCP_APPS.md](MCP_APPS.md)** for the complete guide.
 
 ### Testing Tools
 
-You can call your tools via the router module (note: you need to pass a connection):
-
 ```elixir
-iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> {:ok, [content]} = MyApp.Router.call_tool(conn, "echo", %{"message" => "Hello World"})
-iex> content
-# => %McpServer.Tool.Content.Text{text: "Hello World"}
-```
+defmodule MyApp.RouterTest do
+  use ExUnit.Case
 
-List all tools and their schemas (returns Tool structs):
+  setup do
+    %{conn: %McpServer.Conn{session_id: "test-session"}}
+  end
 
-```elixir
-iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> {:ok, tools} = MyApp.Router.list_tools(conn)
-iex> hd(tools).name
-# => "echo"
-iex> hd(tools).description
-# => "Echoes back the input"
+  test "call a tool", %{conn: conn} do
+    {:ok, result} = MyApp.Router.call_tool(conn, "echo", %{"message" => "Hello World"})
+    assert %McpServer.Tool.CallResult{content: [content]} = result
+    assert %McpServer.Tool.Content.Text{text: "Hello World"} = content
+  end
+
+  test "list tools", %{conn: conn} do
+    {:ok, tools} = MyApp.Router.list_tools(conn)
+    echo = Enum.find(tools, &(&1.name == "echo"))
+    assert echo.description == "Echoes back the input"
+  end
+end
 ```
 
 ### Testing Prompts
 
-You can get prompt messages (returns Message structs):
-
 ```elixir
-iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> {:ok, messages} = MyApp.Router.get_prompt(conn, "greet", %{"user_name" => "Alice"})
-iex> hd(messages).role
-# => "user"
-iex> hd(messages).content.text
-# => "Hello Alice! Welcome to our MCP server..."
-```
+defmodule MyApp.PromptTest do
+  use ExUnit.Case
 
-Get completion suggestions for prompt arguments (returns Completion struct):
+  setup do
+    %{conn: %McpServer.Conn{session_id: "test-session"}}
+  end
 
-```elixir
-iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> {:ok, completion} = MyApp.Router.complete_prompt(conn, "greet", "user_name", "A")
-iex> completion.values
-# => ["Alice"]
-iex> completion.total
-# => 100
-iex> completion.has_more
-# => true
-```
+  test "get prompt messages", %{conn: conn} do
+    {:ok, messages} = MyApp.Router.get_prompt(conn, "greet", %{"user_name" => "Alice"})
+    assert hd(messages).role == "user"
+    assert hd(messages).content.text =~ "Hello Alice"
+  end
 
-List all prompts (returns Prompt structs):
+  test "complete prompt arguments", %{conn: conn} do
+    {:ok, completion} = MyApp.Router.complete_prompt(conn, "greet", "user_name", "A")
+    assert "Alice" in completion.values
+    assert completion.has_more == true
+  end
 
-```elixir
-iex> conn = %McpServer.Conn{session_id: "test-session"}
-iex> {:ok, prompts} = MyApp.Router.prompts_list(conn)
-iex> hd(prompts).name
-# => "greet"
-iex> hd(prompts).description
-# => "A friendly greeting prompt that welcomes users"
+  test "list prompts", %{conn: conn} do
+    {:ok, prompts} = MyApp.Router.prompts_list(conn)
+    greet = Enum.find(prompts, &(&1.name == "greet"))
+    assert greet.description == "A friendly greeting prompt that welcomes users"
+  end
+end
 ```
