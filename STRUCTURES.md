@@ -478,89 +478,6 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
 }
 ```
 
-### 4.4 Host Capabilities — `McpServer.App.HostCapabilities`
-
-**Purpose**: Capabilities sent by the host to the view during `ui/initialize`
-**Used by**: `McpServer.App.Host.handle_initialize/2` return value
-**Module**: `McpServer.App.HostCapabilities`
-
-```elixir
-%McpServer.App.HostCapabilities{
-  experimental: map() | nil,
-  open_links: map() | nil,                 # %{} if host can open URLs
-  server_tools: %{list_changed: boolean()} | nil,
-  server_resources: %{list_changed: boolean()} | nil,
-  logging: map() | nil,                    # %{} if host accepts logs
-  sandbox: map() | nil                     # Sandbox configuration
-}
-```
-
-**JSON Example**:
-```json
-{
-  "openLinks": {},
-  "serverTools": {"listChanged": true},
-  "logging": {}
-}
-```
-
-### 4.5 Host Context — `McpServer.App.HostContext`
-
-**Purpose**: Environment information provided to the view during initialization
-**Used by**: `McpServer.App.Host.handle_initialize/2` return value
-**Module**: `McpServer.App.HostContext`
-
-```elixir
-%McpServer.App.HostContext{
-  tool_info: map() | nil,                  # Metadata of the instantiating tool call
-  theme: String.t() | nil,                 # "light" or "dark"
-  styles: map() | nil,                     # Style configuration
-  display_mode: String.t() | nil,          # "inline", "fullscreen", "pip"
-  available_display_modes: list(String.t()) | nil,
-  container_dimensions: map() | nil,       # %{width: n, height: n, ...}
-  locale: String.t() | nil,               # BCP 47 (e.g., "en-US")
-  time_zone: String.t() | nil,            # IANA (e.g., "America/New_York")
-  user_agent: String.t() | nil,           # Host application identifier
-  platform: String.t() | nil,             # "web", "desktop", "mobile"
-  device_capabilities: map() | nil,        # %{touch: bool, hover: bool}
-  safe_area_insets: map() | nil            # %{top: n, right: n, ...}
-}
-```
-
-**JSON Example**:
-```json
-{
-  "theme": "dark",
-  "displayMode": "inline",
-  "availableDisplayModes": ["inline", "fullscreen"],
-  "locale": "en-US",
-  "timeZone": "America/New_York",
-  "platform": "desktop"
-}
-```
-
-### 4.6 App Capabilities — `McpServer.App.AppCapabilities`
-
-**Purpose**: Capabilities declared by a view during `ui/initialize`
-**Used by**: Received by `McpServer.App.Host.handle_initialize/2`
-**Module**: `McpServer.App.AppCapabilities`
-
-```elixir
-%McpServer.App.AppCapabilities{
-  experimental: map() | nil,
-  tools: %{list_changed: boolean()} | nil,
-  available_display_modes: list(String.t()) | nil
-}
-```
-
-**JSON Example**:
-```json
-{
-  "tools": {"listChanged": true},
-  "availableDisplayModes": ["inline", "fullscreen"]
-}
-```
-
 ---
 
 ## 5. Common Structures
@@ -699,10 +616,6 @@ lib/mcp_server/
     ├── meta.ex           # App.Meta (metadata container)
     ├── ui.ex             # App.UI (tool UI metadata)
     ├── ui_resource_meta.ex # App.UIResourceMeta (resource UI metadata)
-    ├── host.ex           # HostCapabilities, HostContext, AppCapabilities
-    ├── host_behaviour.ex # App.Host behaviour
-    ├── host_plug.ex      # App.HostPlug (Plug for view communication)
-    ├── messages.ex       # App.Messages (JSON-RPC helpers for ui/* methods)
     └── csp.ex            # App.CSP (Content Security Policy generation)
 ```
 
@@ -838,9 +751,6 @@ To implement these structures in the existing codebase:
 | `App.Meta` | `McpServer.App.Meta` | Metadata container for UI config | `list_tools/1`, `list_resources/1` |
 | `App.UI` | `McpServer.App.UI` | Tool UI metadata | Nested in Meta (tools) |
 | `App.UIResourceMeta` | `McpServer.App.UIResourceMeta` | Resource UI metadata (CSP, permissions) | Nested in Meta (resources) |
-| `App.HostCapabilities` | `McpServer.App.HostCapabilities` | Host capabilities | `ui/initialize` response |
-| `App.HostContext` | `McpServer.App.HostContext` | Host environment context | `ui/initialize` response |
-| `App.AppCapabilities` | `McpServer.App.AppCapabilities` | View capabilities | `ui/initialize` request |
 
 ---
 

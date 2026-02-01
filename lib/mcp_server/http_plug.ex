@@ -154,7 +154,6 @@ defmodule McpServer.HttpPlug do
   * `McpServer.Router` - Define your MCP tools, prompts, and resources
   * `McpServer.JsonRpc` - JSON-RPC 2.0 encoding/decoding
   * `McpServer.URITemplate` - URI template matching for resources
-  * `McpServer.App.HostPlug` - Host-side plug for view communication
   """
   use Plug.Builder
   require Logger

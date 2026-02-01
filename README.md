@@ -253,8 +253,6 @@ McpServer supports the MCP Apps extension (`io.modelcontextprotocol/ui`) for del
 - **UI Tools** — Link tools to UI resources with `ui` and `visibility` options
 - **UI Resources** — Serve HTML content via `ui://` URIs with CSP and sandbox permissions
 - **Structured Content** — Return rich data for UI rendering via `McpServer.Tool.CallResult`
-- **Host Behaviour** — Implement `McpServer.App.Host` to manage view lifecycles
-- **Host Plug** — Mount `McpServer.App.HostPlug` to handle view-host communication
 
 See **[MCP_APPS.md](MCP_APPS.md)** for the complete guide.
 

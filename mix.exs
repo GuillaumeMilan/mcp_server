@@ -97,16 +97,10 @@ defmodule McpServer.MixProject do
           McpServer.JsonRpc
         ],
         Apps: [
-          McpServer.App.Host,
-          McpServer.App.HostPlug,
-          McpServer.App.Messages,
           McpServer.App.CSP,
           McpServer.App.Meta,
           McpServer.App.UI,
-          McpServer.App.UIResourceMeta,
-          McpServer.App.HostCapabilities,
-          McpServer.App.HostContext,
-          McpServer.App.AppCapabilities
+          McpServer.App.UIResourceMeta
         ],
         Testing: [
           McpServer.Test
