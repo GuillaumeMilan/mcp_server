@@ -134,6 +134,21 @@ defmodule McpServer.HttpPlug do
   * Validate and sanitize all tool inputs
   * Run tools with minimal required privileges
 
+  ## MCP Apps (UI) Support
+
+  The plug supports the MCP Apps extension (`io.modelcontextprotocol/ui`):
+
+  * **Extension negotiation**: The `initialize` response advertises the
+    `io.modelcontextprotocol/ui` extension with supported MIME types.
+    Client capabilities are stored in the session ETS table.
+
+  * **Structured content**: `tools/call` responses include `structuredContent`
+    when a controller returns `McpServer.Tool.CallResult` with structured data.
+    This field is omitted when controllers return plain content lists.
+
+  * **UI metadata**: `tools/list` and `resources/list` responses include `_meta`
+    on tools and resources that declare UI configuration.
+
   ## See Also
 
   * `McpServer.Router` - Define your MCP tools, prompts, and resources
@@ -310,6 +325,7 @@ defmodule McpServer.HttpPlug do
     |> put_private(:session_id, session_id)
     |> then(fn conn ->
       %McpServer.Conn{} = mcp_conn = opts.init_conn_callback.(conn)
+      mcp_conn = McpServer.Conn.put_private(mcp_conn, :server_info, opts.server_info)
       put_private(conn, :mcp_conn, mcp_conn)
     end)
     |> put_resp_header("cache-control", "no-cache")
@@ -395,9 +411,18 @@ defmodule McpServer.HttpPlug do
     end
   end
 
-  def handle_request(conn, %JsonRpc.Request{method: "initialize", id: id}) do
+  def handle_request(conn, %JsonRpc.Request{method: "initialize", params: params, id: id}) do
     # Generate a new session ID for initialization
     session_id = generate_session_id()
+
+    # Extract client info and capabilities from params
+    params = params || %{}
+    client_info = Map.get(params, "clientInfo", %{})
+    client_capabilities = Map.get(params, "capabilities", %{})
+
+    # Store client info in session ETS for later use
+    :ets.insert(McpServer.Session, {{session_id, :client_info}, client_info})
+    :ets.insert(McpServer.Session, {{session_id, :client_capabilities}, client_capabilities})
 
     Telemetry.execute(
       [:mcp_server, :session, :init],
@@ -405,7 +430,8 @@ defmodule McpServer.HttpPlug do
       %{
         session_id: session_id,
         protocol_version: "2025-06-18",
-        server_info: conn.private.server_info
+        server_info: conn.private.server_info,
+        client_info: client_info
       }
     )
 
@@ -415,7 +441,12 @@ defmodule McpServer.HttpPlug do
         "logging" => %{},
         "prompts" => %{"listChanged" => true},
         "resources" => %{"listChanged" => true},
-        "tools" => %{"listChanged" => true}
+        "tools" => %{"listChanged" => true},
+        "extensions" => %{
+          "io.modelcontextprotocol/ui" => %{
+            "mimeTypes" => ["text/html;profile=mcp-app"]
+          }
+        }
       },
       # "instructions" => "Optional instructions for the client",
       "protocolVersion" => "2025-06-18",
@@ -549,6 +580,23 @@ defmodule McpServer.HttpPlug do
 
     router.call_tool(mcp_conn, tool_name, arguments)
     |> case do
+      {:ok, %McpServer.Tool.CallResult{} = call_result} ->
+        Telemetry.execute(
+          [:mcp_server, :tool, :call_stop],
+          %{duration: System.monotonic_time() - start_time},
+          %{
+            session_id: session_id,
+            tool_name: tool_name,
+            result_count: length(call_result.content)
+          }
+        )
+
+        response = JsonRpc.new_response(call_result, id)
+        response_json = response |> JsonRpc.encode_response() |> Jason.encode!()
+
+        Logger.info("Tool call successful for session #{session_id}: #{inspect(call_result)}")
+        send_resp(conn, 200, response_json)
+
       {:ok, content} ->
         Telemetry.execute(
           [:mcp_server, :tool, :call_stop],

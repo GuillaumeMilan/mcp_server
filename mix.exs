@@ -61,6 +61,7 @@ defmodule McpServer.MixProject do
       extras: [
         "README.md",
         "TESTING.md",
+        "MCP_APPS.md",
         "MIGRATION_GUIDE.md",
         "STRUCTURES.md",
         "CHANGELOG_v0.4.0.md",
@@ -68,7 +69,7 @@ defmodule McpServer.MixProject do
       ],
       groups_for_extras: [
         "Getting Started": ["README.md"],
-        Guides: ["TESTING.md"],
+        Guides: ["TESTING.md", "MCP_APPS.md"],
         "Migration & Upgrade": [
           "MIGRATION_GUIDE.md",
           "QUICK_MIGRATION_REFERENCE.md",
@@ -84,6 +85,7 @@ defmodule McpServer.MixProject do
         "Data Structures": [
           McpServer.Conn,
           McpServer.Tool,
+          McpServer.Tool.CallResult,
           McpServer.Prompt,
           McpServer.Resource,
           McpServer.ResourceTemplate,
@@ -93,6 +95,14 @@ defmodule McpServer.MixProject do
         Transport: [
           McpServer.HttpPlug,
           McpServer.JsonRpc
+        ],
+        Apps: [
+          McpServer.Tool.Meta,
+          McpServer.Resource.Meta,
+          McpServer.Tool.Meta.UI,
+          McpServer.Resource.Meta.UI,
+          McpServer.Resource.Meta.UI.CSP,
+          McpServer.Resource.Meta.UI.Permissions
         ],
         Testing: [
           McpServer.Test

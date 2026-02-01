@@ -184,6 +184,49 @@ defmodule McpServer.Router do
   - `:idempotent` - Tool can be called repeatedly with same result
   - `:closed_world` - Tool only works with known/predefined data
 
+  ### MCP Apps (UI) Options
+
+  Tools can link to UI resources for rich interactive rendering via the
+  `ui` and `visibility` options:
+
+      tool "get_weather", "Gets weather data", WeatherController, :get,
+        ui: "ui://weather-server/dashboard",
+        visibility: [:model, :app] do
+        input_field("location", "Location", :string, required: true)
+      end
+
+  Options:
+  - `ui: "ui://..."` — URI of a UI resource that renders tool results
+  - `visibility: [:model, :app]` — Controls who can access the tool.
+    `:model` makes it visible to the AI model, `:app` makes it callable
+    from views. Defaults to `[:model, :app]` when `ui` is set.
+
+  When `ui` is set, `tools/list` responses include `_meta.ui` with
+  `resourceUri` and `visibility`.
+
+  ### Structured Content (MCP Apps)
+
+  Controllers can return `McpServer.Tool.CallResult` to include structured
+  data optimized for UI rendering alongside standard text content:
+
+      def get_weather(_conn, %{"location" => location}) do
+        {:ok, McpServer.Tool.CallResult.new(
+          content: [McpServer.Tool.Content.text("Weather: 72F")],
+          structured_content: %{
+            "temperature" => 72,
+            "unit" => "fahrenheit",
+            "location" => location
+          }
+        )}
+      end
+
+  - `content` — Text representation for the model context (required)
+  - `structured_content` — Structured data for UI rendering (excluded from
+    model context)
+  - `_meta` — Additional metadata (timestamps, source info)
+
+  Controllers returning a plain content list `{:ok, [content_items]}`
+  continue to work unchanged.
 
   ### Controller Implementation
 
@@ -347,6 +390,35 @@ defmodule McpServer.Router do
         read MyApp.Resources, :read_user
         complete MyApp.Resources, :complete_user_id
       end
+
+  ### UI Resource (MCP Apps)
+
+  UI resources use the `ui://` scheme and `text/html;profile=mcp-app` MIME
+  type. They can declare CSP, sandbox permissions, and other UI metadata
+  inside the resource block:
+
+      resource "dashboard", "ui://weather-server/dashboard" do
+        description "Interactive weather dashboard"
+        mimeType "text/html;profile=mcp-app"
+        read MyApp.Resources, :read_dashboard
+
+        csp connect_domains: ["api.weather.com"],
+            resource_domains: ["cdn.weather.com"]
+        permissions camera: true, microphone: true
+        app_domain "a904794854a047f6.claudemcpcontent.com"
+        prefers_border true
+      end
+
+  UI metadata keywords:
+  - `csp` — Content Security Policy domains:
+    - `connect_domains` — Allowed for `connect-src` (API calls, WebSockets)
+    - `resource_domains` — Allowed for scripts, styles, images, fonts
+    - `frame_domains` — Allowed for `frame-src`
+    - `base_uri_domains` — Allowed for `base-uri`
+  - `permissions` — Sandbox permissions (`camera`, `microphone`,
+    `geolocation`, `clipboard_write`)
+  - `app_domain` — Dedicated sandbox origin domain
+  - `prefers_border` — Whether the host should draw a visual boundary
 
   ### Controller Implementation
 
@@ -746,7 +818,11 @@ defmodule McpServer.Router do
             read_controller: nil,
             read_function: nil,
             complete_controller: nil,
-            complete_function: nil
+            complete_function: nil,
+            csp: nil,
+            permissions: nil,
+            app_domain: nil,
+            prefers_border: nil
           }
 
         _ ->
@@ -853,6 +929,23 @@ defmodule McpServer.Router do
       end
     end
 
+    # Build _meta from UI resource metadata fields (csp, permissions, app_domain, prefers_border)
+    resource_meta =
+      if statements.csp || statements.permissions || statements.app_domain ||
+           statements.prefers_border != nil do
+        ui_resource_meta =
+          McpServer.Resource.Meta.UI.new(
+            csp: build_csp_map(statements.csp),
+            permissions: build_permissions_map(statements.permissions),
+            domain: statements.app_domain,
+            prefers_border: statements.prefers_border
+          )
+
+        McpServer.Resource.Meta.new(ui: ui_resource_meta)
+      else
+        nil
+      end
+
     resource = %{
       name: name,
       uri: uri,
@@ -866,7 +959,8 @@ defmodule McpServer.Router do
           do: elem(Code.eval_quoted(statements.complete_controller, [], caller), 0),
           else: nil
         ),
-      complete_function: statements.complete_function
+      complete_function: statements.complete_function,
+      _meta: resource_meta
     }
 
     Module.put_attribute(caller.module, :resources, Map.put(resources, name, resource))
@@ -881,7 +975,11 @@ defmodule McpServer.Router do
         read_controller: nil,
         read_function: nil,
         complete_controller: nil,
-        complete_function: nil
+        complete_function: nil,
+        csp: nil,
+        permissions: nil,
+        app_domain: nil,
+        prefers_border: nil
       },
       quoted,
       ctx
@@ -917,6 +1015,22 @@ defmodule McpServer.Router do
     statements
     |> Map.put(:complete_controller, controller)
     |> Map.put(:complete_function, function)
+  end
+
+  defp do_extract_resource_statements(statements, {:csp, _, [csp_opts]}, _ctx) do
+    Map.put(statements, :csp, csp_opts)
+  end
+
+  defp do_extract_resource_statements(statements, {:permissions, _, [perm_opts]}, _ctx) do
+    Map.put(statements, :permissions, perm_opts)
+  end
+
+  defp do_extract_resource_statements(statements, {:app_domain, _, [domain]}, _ctx) do
+    Map.put(statements, :app_domain, domain)
+  end
+
+  defp do_extract_resource_statements(statements, {:prefers_border, _, [val]}, _ctx) do
+    Map.put(statements, :prefers_border, val)
   end
 
   defp do_extract_resource_statements(_statements, other, %{caller: caller}) do
@@ -1433,6 +1547,15 @@ defmodule McpServer.Router do
               :ok ->
                 try do
                   case unquote(tool.controller).unquote(tool.function)(conn, args) do
+                    {:ok, %McpServer.Tool.CallResult{} = call_result} ->
+                      validated_content =
+                        McpServer.Router.validate_tool_result(
+                          call_result.content,
+                          unquote(tool.name)
+                        )
+
+                      {:ok, %McpServer.Tool.CallResult{call_result | content: validated_content}}
+
                     {:ok, result} ->
                       {:ok, McpServer.Router.validate_tool_result(result, unquote(tool.name))}
 
@@ -1840,6 +1963,9 @@ defmodule McpServer.Router do
   defp list_tools(tools) do
     tools
     |> Enum.map(fn {name, tool} ->
+      ui_uri = Keyword.get(tool.opts, :ui)
+      visibility = Keyword.get(tool.opts, :visibility)
+
       quote do
         hints = Keyword.get(unquote(tool.opts), :hints, [])
         title = Keyword.get(unquote(tool.opts), :title, unquote(name))
@@ -1858,13 +1984,30 @@ defmodule McpServer.Router do
             open_world_hint: :closed_world not in hints
           )
 
+        # Create _meta struct if UI or visibility is defined
+        _meta =
+          case {unquote(ui_uri), unquote(Macro.escape(visibility))} do
+            {nil, nil} ->
+              nil
+
+            {uri, vis} ->
+              ui =
+                McpServer.Tool.Meta.UI.new(
+                  resource_uri: uri,
+                  visibility: vis || [:model, :app]
+                )
+
+              McpServer.Tool.Meta.new(ui: ui)
+          end
+
         # Create Tool struct
         McpServer.Tool.new(
           name: unquote(name),
           description: unquote(tool.description),
           input_schema: input_schema,
           annotations: annotations,
-          callback: {unquote(tool.controller), unquote(tool.function)}
+          callback: {unquote(tool.controller), unquote(tool.function)},
+          _meta: _meta
         )
       end
     end)
@@ -1917,7 +2060,8 @@ defmodule McpServer.Router do
           uri: unquote(resource.uri),
           description: unquote(resource.description),
           title: unquote(resource.title),
-          mime_type: unquote(resource.mimeType)
+          mime_type: unquote(resource.mimeType),
+          _meta: unquote(Macro.escape(resource._meta))
         )
       end
     end)
@@ -1937,7 +2081,8 @@ defmodule McpServer.Router do
           uri_template: unquote(resource.uri),
           description: unquote(resource.description),
           title: unquote(resource.title),
-          mime_type: unquote(resource.mimeType)
+          mime_type: unquote(resource.mimeType),
+          _meta: unquote(Macro.escape(resource._meta))
         )
       end
     end)
@@ -1955,5 +2100,19 @@ defmodule McpServer.Router do
         )
       end
     end)
+  end
+
+  # Build a CSP map from keyword list options
+  defp build_csp_map(nil), do: nil
+
+  defp build_csp_map(opts) when is_list(opts) do
+    if Enum.any?(opts), do: McpServer.Resource.Meta.UI.CSP.new(opts), else: nil
+  end
+
+  # Build a permissions struct from keyword list options
+  defp build_permissions_map(nil), do: nil
+
+  defp build_permissions_map(opts) when is_list(opts) do
+    if Enum.any?(opts), do: McpServer.Resource.Meta.UI.Permissions.new(opts), else: nil
   end
 end
