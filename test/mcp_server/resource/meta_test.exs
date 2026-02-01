@@ -1,9 +1,8 @@
-defmodule McpServer.App.MetaTest do
+defmodule McpServer.Resource.MetaTest do
   use ExUnit.Case, async: true
 
-  alias McpServer.App.Meta
-  alias McpServer.Tool.Meta.UI
-  alias McpServer.Resource.Meta.UI, as: UIResourceMeta
+  alias McpServer.Resource.Meta
+  alias McpServer.Resource.Meta.UI
 
   describe "new/1" do
     test "creates struct with defaults" do
@@ -12,15 +11,9 @@ defmodule McpServer.App.MetaTest do
     end
 
     test "creates struct with UI value" do
-      ui = UI.new(resource_uri: "ui://test/dashboard")
+      ui = UI.new(domain: "example.com")
       meta = Meta.new(ui: ui)
       assert meta.ui == ui
-    end
-
-    test "creates struct with UIResourceMeta value" do
-      ui_meta = UIResourceMeta.new(domain: "example.com")
-      meta = Meta.new(ui: ui_meta)
-      assert meta.ui == ui_meta
     end
   end
 
@@ -31,11 +24,11 @@ defmodule McpServer.App.MetaTest do
     end
 
     test "encodes meta with UI value" do
-      ui = UI.new(resource_uri: "ui://test/dashboard")
+      ui = UI.new(domain: "example.com")
       meta = Meta.new(ui: ui)
       json = Jason.decode!(Jason.encode!(meta))
 
-      assert json["ui"]["resourceUri"] == "ui://test/dashboard"
+      assert json["ui"]["domain"] == "example.com"
     end
 
     test "omits nil fields" do

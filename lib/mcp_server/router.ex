@@ -941,7 +941,7 @@ defmodule McpServer.Router do
             prefers_border: statements.prefers_border
           )
 
-        McpServer.App.Meta.new(ui: ui_resource_meta)
+        McpServer.Resource.Meta.new(ui: ui_resource_meta)
       else
         nil
       end
@@ -1997,7 +1997,7 @@ defmodule McpServer.Router do
                   visibility: vis || [:model, :app]
                 )
 
-              McpServer.App.Meta.new(ui: ui)
+              McpServer.Tool.Meta.new(ui: ui)
           end
 
         # Create Tool struct

@@ -51,7 +51,7 @@ defmodule McpServer.Tool do
           input_schema: map() | McpServer.Schema.t(),
           annotations: McpServer.Tool.Annotations.t() | nil,
           callback: callback_info(),
-          _meta: McpServer.App.Meta.t() | nil
+          _meta: McpServer.Tool.Meta.t() | nil
         }
 
   @doc """

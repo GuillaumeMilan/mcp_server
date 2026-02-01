@@ -405,15 +405,15 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 These structures support the MCP Apps extension (`io.modelcontextprotocol/ui`).
 For usage details, see [Building MCP Apps](MCP_APPS.md).
 
-### 4.1 App Metadata Container — `McpServer.App.Meta`
+### 4.1 Tool Metadata Container — `McpServer.Tool.Meta`
 
-**Purpose**: Wraps UI configuration for tools and resources in `_meta`
-**Used by**: `list_tools/1`, `list_resources/1` responses
-**Module**: `McpServer.App.Meta`
+**Purpose**: Wraps UI configuration in the `_meta` field on tools
+**Used by**: `list_tools/1` responses
+**Module**: `McpServer.Tool.Meta`
 
 ```elixir
-%McpServer.App.Meta{
-  ui: McpServer.Tool.Meta.UI.t() | McpServer.Resource.Meta.UI.t() | nil
+%McpServer.Tool.Meta{
+  ui: McpServer.Tool.Meta.UI.t() | nil
 }
 ```
 
@@ -422,10 +422,22 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
 {"ui": {"resourceUri": "ui://weather/dashboard", "visibility": ["model", "app"]}}
 ```
 
-### 4.2 Tool UI Metadata — `McpServer.Tool.Meta.UI`
+### 4.2 Resource Metadata Container — `McpServer.Resource.Meta`
+
+**Purpose**: Wraps UI configuration in the `_meta` field on resources
+**Used by**: `list_resources/1` responses
+**Module**: `McpServer.Resource.Meta`
+
+```elixir
+%McpServer.Resource.Meta{
+  ui: McpServer.Resource.Meta.UI.t() | nil
+}
+```
+
+### 4.3 Tool UI Metadata — `McpServer.Tool.Meta.UI`
 
 **Purpose**: Links tools to UI resources and controls visibility
-**Used by**: Nested in `McpServer.App.Meta` on tools
+**Used by**: Nested in `McpServer.Tool.Meta`
 **Module**: `McpServer.Tool.Meta.UI`
 
 ```elixir
@@ -443,10 +455,10 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
 {"resourceUri": "ui://weather/dashboard", "visibility": ["model", "app"]}
 ```
 
-### 4.3 Resource UI Metadata — `McpServer.Resource.Meta.UI`
+### 4.4 Resource UI Metadata — `McpServer.Resource.Meta.UI`
 
 **Purpose**: CSP, permissions, and sandbox settings for UI resources
-**Used by**: Nested in `_meta` on resources
+**Used by**: Nested in `McpServer.Resource.Meta`
 **Module**: `McpServer.Resource.Meta.UI`
 
 ```elixir
@@ -613,9 +625,11 @@ lib/mcp_server/
 ├── tool.ex               # Tool, Tool.Annotations
 ├── tool/
 │   ├── call_result.ex    # Tool.CallResult (MCP Apps)
+│   └── meta.ex           # Tool.Meta
 │   └── meta/
 │       └── ui.ex         # Tool.Meta.UI (tool UI metadata)
 ├── resource/
+│   └── meta.ex           # Resource.Meta
 │   └── meta/
 │       ├── ui.ex         # Resource.Meta.UI (resource UI metadata)
 │       └── ui/
@@ -630,8 +644,6 @@ lib/mcp_server/
 │   ├── response.ex
 │   └── error.ex
 └── app/                  # MCP Apps extension
-    ├── meta.ex           # App.Meta (metadata container)
-    ├── ui_resource_meta.ex # App.UIResourceMeta (deprecated)
     └── csp.ex            # App.CSP (Content Security Policy generation)
 ```
 
@@ -764,7 +776,8 @@ To implement these structures in the existing codebase:
 | `JsonRpc.Response` | `McpServer.JsonRpc` | RPC response | HTTP transport (exists) |
 | `JsonRpc.Error` | `McpServer.JsonRpc` | RPC error | Nested in Response (exists) |
 | `Tool.CallResult` | `McpServer.Tool.CallResult` | Extended tool result with structured content | `call_tool/3` (MCP Apps) |
-| `App.Meta` | `McpServer.App.Meta` | Metadata container for UI config | `list_tools/1`, `list_resources/1` |
+| `Tool.Meta` | `McpServer.Tool.Meta` | Tool metadata container | `list_tools/1` |
+| `Resource.Meta` | `McpServer.Resource.Meta` | Resource metadata container | `list_resources/1` |
 | `Tool.Meta.UI` | `McpServer.Tool.Meta.UI` | Tool UI metadata | Nested in Meta (tools) |
 | `Resource.Meta.UI` | `McpServer.Resource.Meta.UI` | Resource UI metadata (CSP, permissions) | Nested in Meta (resources) |
 | `Resource.Meta.UI.CSP` | `McpServer.Resource.Meta.UI.CSP` | CSP domain configuration | Nested in Resource.Meta.UI |

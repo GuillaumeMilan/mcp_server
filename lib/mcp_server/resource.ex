@@ -45,7 +45,7 @@ defmodule McpServer.Resource do
           description: String.t() | nil,
           mime_type: String.t() | nil,
           title: String.t() | nil,
-          _meta: McpServer.App.Meta.t() | nil
+          _meta: McpServer.Resource.Meta.t() | nil
         }
 
   @doc """
@@ -143,7 +143,7 @@ defmodule McpServer.ResourceTemplate do
           description: String.t() | nil,
           mime_type: String.t() | nil,
           title: String.t() | nil,
-          _meta: McpServer.App.Meta.t() | nil
+          _meta: McpServer.Resource.Meta.t() | nil
         }
 
   @doc """

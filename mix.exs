@@ -98,7 +98,8 @@ defmodule McpServer.MixProject do
         ],
         Apps: [
           McpServer.App.CSP,
-          McpServer.App.Meta,
+          McpServer.Tool.Meta,
+          McpServer.Resource.Meta,
           McpServer.Tool.Meta.UI,
           McpServer.Resource.Meta.UI,
           McpServer.Resource.Meta.UI.CSP,
