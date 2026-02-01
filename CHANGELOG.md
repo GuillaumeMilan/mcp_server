@@ -21,7 +21,7 @@ Implements the [SEP-1865](https://github.com/modelcontextprotocol/ext-apps/blob/
 - **Router DSL extensions** — `ui:` and `visibility:` options on `tool`, new `resource` macro for UI resources
 - **JS bridge** — EEx template (`priv/js/mcp_app.js.eex`) for frontend ↔ server communication
 
-## [0.7.0] - 2025-01-29
+## [0.7.0] - 2026-01-29
 
 ### Major Feature: Tool Content Helpers & Result Validation
 
