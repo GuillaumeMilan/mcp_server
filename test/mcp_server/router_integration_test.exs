@@ -96,7 +96,7 @@ defmodule McpServer.App.RouterIntegrationTest do
 
       csp(connect_domains: ["api.weather.com"], resource_domains: ["cdn.weather.com"])
       permissions(camera: true)
-      app_domain("a904794854a047f6.claudemcpcontent.com")
+      app_domain("a904794854a047f6.example.com")
       prefers_border(true)
     end
 
@@ -187,7 +187,7 @@ defmodule McpServer.App.RouterIntegrationTest do
 
       dashboard = Enum.find(resources, &(&1.name == "dashboard"))
       assert dashboard._meta != nil
-      assert dashboard._meta.ui.domain == "a904794854a047f6.claudemcpcontent.com"
+      assert dashboard._meta.ui.domain == "a904794854a047f6.example.com"
       assert dashboard._meta.ui.prefers_border == true
     end
 
@@ -200,7 +200,7 @@ defmodule McpServer.App.RouterIntegrationTest do
       assert json["_meta"]["ui"]["csp"]["connectDomains"] == ["api.weather.com"]
       assert json["_meta"]["ui"]["csp"]["resourceDomains"] == ["cdn.weather.com"]
       assert json["_meta"]["ui"]["permissions"]["camera"] == %{}
-      assert json["_meta"]["ui"]["domain"] == "a904794854a047f6.claudemcpcontent.com"
+      assert json["_meta"]["ui"]["domain"] == "a904794854a047f6.example.com"
       assert json["_meta"]["ui"]["prefersBorder"] == true
     end
 

@@ -494,7 +494,7 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
     "resourceDomains": ["cdn.example.com"]
   },
   "permissions": {"camera": {}, "clipboardWrite": {}},
-  "domain": "a904794854a047f6.claudemcpcontent.com",
+  "domain": "a904794854a047f6.example.com",
   "prefersBorder": true
 }
 ```

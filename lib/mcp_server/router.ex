@@ -405,7 +405,7 @@ defmodule McpServer.Router do
         csp connect_domains: ["api.weather.com"],
             resource_domains: ["cdn.weather.com"]
         permissions camera: true, microphone: true
-        app_domain "a904794854a047f6.claudemcpcontent.com"
+        app_domain "a904794854a047f6.example.com"
         prefers_border true
       end
 

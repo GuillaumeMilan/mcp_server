@@ -20,7 +20,7 @@ defmodule McpServer.Resource.Meta.UITest do
           csp:
             CSP.new(connect_domains: ["api.example.com"], resource_domains: ["cdn.example.com"]),
           permissions: Permissions.new(camera: true, microphone: true),
-          domain: "a904794854a047f6.claudemcpcontent.com",
+          domain: "a904794854a047f6.example.com",
           prefers_border: true
         )
 
@@ -28,7 +28,7 @@ defmodule McpServer.Resource.Meta.UITest do
       assert meta.csp.resource_domains == ["cdn.example.com"]
       assert meta.permissions.camera == true
       assert meta.permissions.microphone == true
-      assert meta.domain == "a904794854a047f6.claudemcpcontent.com"
+      assert meta.domain == "a904794854a047f6.example.com"
       assert meta.prefers_border == true
     end
   end

@@ -59,7 +59,7 @@ resource "dashboard", "ui://weather-server/dashboard" do
   permissions camera: true, microphone: true, geolocation: true, clipboard_write: true
 
   # Dedicated sandbox origin domain (assigned by host)
-  app_domain "a904794854a047f6.claudemcpcontent.com"
+  app_domain "a904794854a047f6.example.com"
 
   # Whether the host should draw a visual boundary around the iframe
   prefers_border true
