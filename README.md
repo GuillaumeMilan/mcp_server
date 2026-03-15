@@ -22,7 +22,7 @@ McpServer is an Elixir library that builds a DSL for defining Model Context Prot
 ```elixir
 def deps do
   [
-    {:mcp_server, "~> 0.8.0"},
+    {:mcp_server, "~> 0.9.0"},
     {:bandit, "~> 1.0"} # HTTP server
   ]
 end
