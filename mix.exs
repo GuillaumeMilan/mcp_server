@@ -62,6 +62,7 @@ defmodule McpServer.MixProject do
         "README.md",
         "TESTING.md",
         "MCP_APPS.md",
+        "MCP_APPS_LIFECYCLE_FRONTEND.md",
         "MIGRATION_GUIDE.md",
         "STRUCTURES.md",
         "CHANGELOG_v0.4.0.md",
@@ -69,7 +70,7 @@ defmodule McpServer.MixProject do
       ],
       groups_for_extras: [
         "Getting Started": ["README.md"],
-        Guides: ["TESTING.md", "MCP_APPS.md"],
+        Guides: ["TESTING.md", "MCP_APPS.md", "MCP_APPS_LIFECYCLE_FRONTEND.md"],
         "Migration & Upgrade": [
           "MIGRATION_GUIDE.md",
           "QUICK_MIGRATION_REFERENCE.md",
