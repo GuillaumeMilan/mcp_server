@@ -40,7 +40,8 @@ defmodule McpServer.Tool do
     :input_schema,
     :annotations,
     :callback,
-    :_meta
+    :_meta,
+    icons: []
   ]
 
   @type callback_info :: {module :: atom(), function :: atom()} | nil
@@ -51,7 +52,8 @@ defmodule McpServer.Tool do
           input_schema: map() | McpServer.Schema.t(),
           annotations: McpServer.Tool.Annotations.t() | nil,
           callback: callback_info(),
-          _meta: McpServer.Tool.Meta.t() | nil
+          _meta: McpServer.Tool.Meta.t() | nil,
+          icons: [McpServer.Icon.t()]
         }
 
   @doc """
@@ -101,7 +103,8 @@ defmodule McpServer.Tool do
       input_schema: Keyword.fetch!(opts, :input_schema),
       annotations: Keyword.get(opts, :annotations),
       callback: Keyword.get(opts, :callback),
-      _meta: Keyword.get(opts, :_meta)
+      _meta: Keyword.get(opts, :_meta),
+      icons: Keyword.get(opts, :icons, [])
     }
   end
 end
@@ -203,12 +206,16 @@ defimpl Jason.Encoder, for: McpServer.Tool do
 
     map = maybe_put(map, "annotations", value.annotations)
     map = maybe_put(map, "_meta", value._meta)
+    map = maybe_put_list(map, "icons", value.icons)
 
     Jason.Encode.map(map, opts)
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_list(map, _key, []), do: map
+  defp maybe_put_list(map, key, value), do: Map.put(map, key, value)
 end
 
 defimpl Jason.Encoder, for: McpServer.Tool.Annotations do

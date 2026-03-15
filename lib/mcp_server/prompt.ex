@@ -35,13 +35,15 @@ defmodule McpServer.Prompt do
   defstruct [
     :name,
     :description,
-    arguments: []
+    arguments: [],
+    icons: []
   ]
 
   @type t :: %__MODULE__{
           name: String.t(),
           description: String.t(),
-          arguments: list(McpServer.Prompt.Argument.t())
+          arguments: list(McpServer.Prompt.Argument.t()),
+          icons: [McpServer.Icon.t()]
         }
 
   @doc """
@@ -84,7 +86,8 @@ defmodule McpServer.Prompt do
     %__MODULE__{
       name: Keyword.fetch!(opts, :name),
       description: Keyword.fetch!(opts, :description),
-      arguments: Keyword.get(opts, :arguments, [])
+      arguments: Keyword.get(opts, :arguments, []),
+      icons: Keyword.get(opts, :icons, [])
     }
   end
 end
@@ -324,8 +327,13 @@ defimpl Jason.Encoder, for: McpServer.Prompt do
       "arguments" => value.arguments
     }
 
+    map = maybe_put_list(map, "icons", value.icons)
+
     Jason.Encode.map(map, opts)
   end
+
+  defp maybe_put_list(map, _key, []), do: map
+  defp maybe_put_list(map, key, value), do: Map.put(map, key, value)
 end
 
 defimpl Jason.Encoder, for: McpServer.Prompt.Argument do

@@ -324,6 +324,124 @@ defmodule McpServer.Tool.ContentTest do
     end
   end
 
+  describe "Audio.new/1" do
+    test "creates audio struct with required fields" do
+      audio_data = <<0, 1, 2, 3>>
+      audio = Content.Audio.new(data: audio_data, mime_type: "audio/wav")
+
+      assert %Content.Audio{} = audio
+      assert audio.data == audio_data
+      assert audio.mime_type == "audio/wav"
+    end
+
+    test "raises when data field is missing" do
+      assert_raise KeyError, fn ->
+        Content.Audio.new(mime_type: "audio/wav")
+      end
+    end
+
+    test "raises when mime_type field is missing" do
+      assert_raise KeyError, fn ->
+        Content.Audio.new(data: <<1, 2, 3>>)
+      end
+    end
+
+    test "raises when data is not binary" do
+      assert_raise ArgumentError, "data must be a binary", fn ->
+        Content.Audio.new(data: 123, mime_type: "audio/wav")
+      end
+    end
+
+    test "raises when mime_type is not string" do
+      assert_raise ArgumentError, "mime_type must be a string", fn ->
+        Content.Audio.new(data: <<1, 2, 3>>, mime_type: 123)
+      end
+    end
+
+    test "accepts empty binary data" do
+      audio = Content.Audio.new(data: <<>>, mime_type: "audio/mpeg")
+      assert audio.data == <<>>
+    end
+  end
+
+  describe "JSON encoding for Audio" do
+    test "encodes audio struct with base64 data" do
+      audio_data = <<255, 216, 255>>
+      audio = Content.Audio.new(data: audio_data, mime_type: "audio/wav")
+      json = Jason.encode!(audio)
+      decoded = Jason.decode!(json)
+
+      assert decoded["type"] == "audio"
+      assert decoded["data"] == Base.encode64(audio_data)
+      assert decoded["mimeType"] == "audio/wav"
+      assert map_size(decoded) == 3
+    end
+
+    test "encodes empty binary as empty string" do
+      audio = Content.Audio.new(data: <<>>, mime_type: "audio/mpeg")
+      json = Jason.encode!(audio)
+      decoded = Jason.decode!(json)
+
+      assert decoded["data"] == ""
+    end
+  end
+
+  describe "audio/2 helper" do
+    test "creates audio content struct" do
+      data = <<0, 1, 2, 3>>
+      result = Content.audio(data, "audio/wav")
+
+      assert %Content.Audio{} = result
+      assert result.data == data
+      assert result.mime_type == "audio/wav"
+    end
+
+    test "creates audio content with empty binary" do
+      result = Content.audio(<<>>, "audio/ogg")
+
+      assert result.data == <<>>
+      assert result.mime_type == "audio/ogg"
+    end
+
+    test "JSON encodes with base64 data" do
+      data = <<1, 2, 3, 4, 5>>
+      result = Content.audio(data, "audio/mpeg")
+      decoded = result |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "audio"
+      assert decoded["data"] == Base.encode64(data)
+      assert decoded["mimeType"] == "audio/mpeg"
+    end
+  end
+
+  describe "audio_base64/2 helper" do
+    test "creates audio content from base64 string" do
+      original_data = <<1, 2, 3>>
+      base64 = Base.encode64(original_data)
+      result = Content.audio_base64(base64, "audio/wav")
+
+      assert %Content.Audio{} = result
+      assert result.data == original_data
+      assert result.mime_type == "audio/wav"
+    end
+
+    test "round-trips through JSON correctly" do
+      original_data = <<10, 20, 30, 40, 50>>
+      base64 = Base.encode64(original_data)
+      result = Content.audio_base64(base64, "audio/flac")
+      decoded = result |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["data"] == base64
+      assert decoded["mimeType"] == "audio/flac"
+    end
+
+    test "raises on invalid base64 string" do
+      assert_raise ArgumentError, "invalid base64 string", fn ->
+        Content.audio_base64("not-valid-base64!!!", "audio/wav")
+      end
+    end
+  end
+
   describe "resource/2 helper" do
     test "creates resource content with URI only" do
       result = Content.resource("file:///path/to/file.txt")
@@ -391,6 +509,13 @@ defmodule McpServer.Tool.ContentTest do
       assert from_helper == from_new
     end
 
+    test "audio/2 matches Audio.new/1" do
+      data = <<1, 2, 3>>
+      from_helper = Content.audio(data, "audio/wav")
+      from_new = Content.Audio.new(data: data, mime_type: "audio/wav")
+      assert from_helper == from_new
+    end
+
     test "resource/2 matches Resource.new/1" do
       from_helper = Content.resource("file:///test", text: "hi", mime_type: "text/plain")
       from_new = Content.Resource.new(uri: "file:///test", text: "hi", mime_type: "text/plain")
@@ -402,14 +527,17 @@ defmodule McpServer.Tool.ContentTest do
     test "all content types have 'type' field in JSON" do
       text = Content.Text.new(text: "test")
       image = Content.Image.new(data: <<1, 2, 3>>, mime_type: "image/png")
+      audio = Content.Audio.new(data: <<1, 2, 3>>, mime_type: "audio/wav")
       resource = Content.Resource.new(uri: "file:///test")
 
       text_json = Jason.decode!(Jason.encode!(text))
       image_json = Jason.decode!(Jason.encode!(image))
+      audio_json = Jason.decode!(Jason.encode!(audio))
       resource_json = Jason.decode!(Jason.encode!(resource))
 
       assert text_json["type"] == "text"
       assert image_json["type"] == "image"
+      assert audio_json["type"] == "audio"
       assert resource_json["type"] == "resource"
     end
 
@@ -417,6 +545,7 @@ defmodule McpServer.Tool.ContentTest do
       contents = [
         Content.Text.new(text: "First"),
         Content.Image.new(data: <<1, 2, 3>>, mime_type: "image/png"),
+        Content.Audio.new(data: <<4, 5, 6>>, mime_type: "audio/wav"),
         Content.Resource.new(uri: "file:///test")
       ]
 
@@ -424,10 +553,11 @@ defmodule McpServer.Tool.ContentTest do
       decoded = Jason.decode!(json)
 
       assert is_list(decoded)
-      assert length(decoded) == 3
+      assert length(decoded) == 4
       assert Enum.at(decoded, 0)["type"] == "text"
       assert Enum.at(decoded, 1)["type"] == "image"
-      assert Enum.at(decoded, 2)["type"] == "resource"
+      assert Enum.at(decoded, 2)["type"] == "audio"
+      assert Enum.at(decoded, 3)["type"] == "resource"
     end
   end
 end

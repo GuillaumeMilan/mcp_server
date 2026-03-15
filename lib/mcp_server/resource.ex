@@ -36,7 +36,8 @@ defmodule McpServer.Resource do
     :description,
     :mime_type,
     :title,
-    :_meta
+    :_meta,
+    icons: []
   ]
 
   @type t :: %__MODULE__{
@@ -45,7 +46,8 @@ defmodule McpServer.Resource do
           description: String.t() | nil,
           mime_type: String.t() | nil,
           title: String.t() | nil,
-          _meta: McpServer.Resource.Meta.t() | nil
+          _meta: McpServer.Resource.Meta.t() | nil,
+          icons: [McpServer.Icon.t()]
         }
 
   @doc """
@@ -91,7 +93,8 @@ defmodule McpServer.Resource do
       description: Keyword.get(opts, :description),
       mime_type: Keyword.get(opts, :mime_type),
       title: Keyword.get(opts, :title),
-      _meta: Keyword.get(opts, :_meta)
+      _meta: Keyword.get(opts, :_meta),
+      icons: Keyword.get(opts, :icons, [])
     }
   end
 end
@@ -134,7 +137,8 @@ defmodule McpServer.ResourceTemplate do
     :description,
     :mime_type,
     :title,
-    :_meta
+    :_meta,
+    icons: []
   ]
 
   @type t :: %__MODULE__{
@@ -143,7 +147,8 @@ defmodule McpServer.ResourceTemplate do
           description: String.t() | nil,
           mime_type: String.t() | nil,
           title: String.t() | nil,
-          _meta: McpServer.Resource.Meta.t() | nil
+          _meta: McpServer.Resource.Meta.t() | nil,
+          icons: [McpServer.Icon.t()]
         }
 
   @doc """
@@ -192,7 +197,8 @@ defmodule McpServer.ResourceTemplate do
       description: Keyword.get(opts, :description),
       mime_type: Keyword.get(opts, :mime_type),
       title: Keyword.get(opts, :title),
-      _meta: Keyword.get(opts, :_meta)
+      _meta: Keyword.get(opts, :_meta),
+      icons: Keyword.get(opts, :icons, [])
     }
   end
 end
@@ -381,12 +387,16 @@ defimpl Jason.Encoder, for: McpServer.Resource do
     map = maybe_put(map, "mimeType", value.mime_type)
     map = maybe_put(map, "title", value.title)
     map = maybe_put(map, "_meta", value._meta)
+    map = maybe_put_list(map, "icons", value.icons)
 
     Jason.Encode.map(map, opts)
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_list(map, _key, []), do: map
+  defp maybe_put_list(map, key, value), do: Map.put(map, key, value)
 end
 
 defimpl Jason.Encoder, for: McpServer.ResourceTemplate do
@@ -400,12 +410,16 @@ defimpl Jason.Encoder, for: McpServer.ResourceTemplate do
     map = maybe_put(map, "mimeType", value.mime_type)
     map = maybe_put(map, "title", value.title)
     map = maybe_put(map, "_meta", value._meta)
+    map = maybe_put_list(map, "icons", value.icons)
 
     Jason.Encode.map(map, opts)
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_list(map, _key, []), do: map
+  defp maybe_put_list(map, key, value), do: Map.put(map, key, value)
 end
 
 defimpl Jason.Encoder, for: McpServer.Resource.Content do

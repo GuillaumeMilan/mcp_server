@@ -10,6 +10,7 @@ defmodule McpServer.Tool.Content do
 
   - `Text` - Text content
   - `Image` - Image content with base64-encoded data
+  - `Audio` - Audio content with base64-encoded data
   - `Resource` - Embedded resource content
 
   ## Usage
@@ -97,6 +98,56 @@ defmodule McpServer.Tool.Content do
   @spec image(binary(), String.t()) :: McpServer.Tool.Content.Image.t()
   def image(data, mime_type) when is_binary(data) and is_binary(mime_type) do
     McpServer.Tool.Content.Image.new(data: data, mime_type: mime_type)
+  end
+
+  @doc """
+  Creates an audio content item for tool responses.
+
+  Returns a `McpServer.Tool.Content.Audio` struct.
+  The audio data will be automatically base64-encoded during JSON serialization.
+
+  ## Parameters
+
+  - `data` (binary): the raw audio data
+  - `mime_type` (string): the MIME type of the audio (e.g., "audio/wav", "audio/mpeg", "audio/ogg")
+
+  ## Examples
+
+      iex> audio_data = <<0, 1, 2, 3>>
+      iex> McpServer.Tool.Content.audio(audio_data, "audio/wav")
+      %McpServer.Tool.Content.Audio{data: <<0, 1, 2, 3>>, mime_type: "audio/wav"}
+  """
+  @spec audio(binary(), String.t()) :: McpServer.Tool.Content.Audio.t()
+  def audio(data, mime_type) when is_binary(data) and is_binary(mime_type) do
+    McpServer.Tool.Content.Audio.new(data: data, mime_type: mime_type)
+  end
+
+  @doc """
+  Creates an audio content item from a pre-encoded base64 string.
+
+  Returns a `McpServer.Tool.Content.Audio` struct. The base64 string is decoded
+  to binary internally so that serialization is consistent with `audio/2`.
+
+  ## Parameters
+
+  - `base64_string` (string): the base64-encoded audio data
+  - `mime_type` (string): the MIME type of the audio (e.g., "audio/wav", "audio/mpeg")
+
+  ## Examples
+
+      iex> McpServer.Tool.Content.audio_base64("AQID", "audio/wav")
+      %McpServer.Tool.Content.Audio{data: <<1, 2, 3>>, mime_type: "audio/wav"}
+  """
+  @spec audio_base64(String.t(), String.t()) :: McpServer.Tool.Content.Audio.t()
+  def audio_base64(base64_string, mime_type)
+      when is_binary(base64_string) and is_binary(mime_type) do
+    case Base.decode64(base64_string) do
+      {:ok, data} ->
+        McpServer.Tool.Content.Audio.new(data: data, mime_type: mime_type)
+
+      :error ->
+        raise ArgumentError, "invalid base64 string"
+    end
   end
 
   @doc """
@@ -341,6 +392,64 @@ defmodule McpServer.Tool.Content do
     end
   end
 
+  defmodule Audio do
+    @moduledoc """
+    Represents audio content in a tool result.
+
+    The audio data is stored as-is (not base64-encoded in the struct).
+    Base64 encoding happens during JSON serialization.
+
+    ## Fields
+
+    - `data` - The raw binary audio data (required)
+    - `mime_type` - The MIME type of the audio (required, e.g., "audio/wav", "audio/mpeg", "audio/ogg")
+
+    ## Examples
+
+        iex> audio_data = <<0, 1, 2, 3>>
+        iex> audio = McpServer.Tool.Content.Audio.new(data: audio_data, mime_type: "audio/wav")
+        iex> audio.mime_type
+        "audio/wav"
+    """
+
+    @enforce_keys [:data, :mime_type]
+    defstruct [:data, :mime_type]
+
+    @type t :: %__MODULE__{
+            data: binary(),
+            mime_type: String.t()
+          }
+
+    @doc """
+    Creates a new Audio content struct.
+
+    ## Parameters
+
+    - `opts` - Keyword list with required `:data` and `:mime_type` fields
+
+    ## Examples
+
+        iex> audio_data = <<0, 1, 2, 3>>
+        iex> McpServer.Tool.Content.Audio.new(data: audio_data, mime_type: "audio/wav")
+        %McpServer.Tool.Content.Audio{data: <<0, 1, 2, 3>>, mime_type: "audio/wav"}
+    """
+    @spec new(keyword()) :: t()
+    def new(opts) when is_list(opts) do
+      data = Keyword.fetch!(opts, :data)
+      mime_type = Keyword.fetch!(opts, :mime_type)
+
+      unless is_binary(data) do
+        raise ArgumentError, "data must be a binary"
+      end
+
+      unless is_binary(mime_type) do
+        raise ArgumentError, "mime_type must be a string"
+      end
+
+      %__MODULE__{data: data, mime_type: mime_type}
+    end
+  end
+
   # Jason.Encoder implementations
 
   defimpl Jason.Encoder, for: McpServer.Tool.Content.Text do
@@ -358,6 +467,18 @@ defmodule McpServer.Tool.Content do
     def encode(value, opts) do
       map = %{
         "type" => "image",
+        "data" => Base.encode64(value.data),
+        "mimeType" => value.mime_type
+      }
+
+      Jason.Encode.map(map, opts)
+    end
+  end
+
+  defimpl Jason.Encoder, for: McpServer.Tool.Content.Audio do
+    def encode(value, opts) do
+      map = %{
+        "type" => "audio",
         "data" => Base.encode64(value.data),
         "mimeType" => value.mime_type
       }

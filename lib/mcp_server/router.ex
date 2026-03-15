@@ -960,7 +960,8 @@ defmodule McpServer.Router do
           else: nil
         ),
       complete_function: statements.complete_function,
-      _meta: resource_meta
+      _meta: resource_meta,
+      icons: statements.icons
     }
 
     Module.put_attribute(caller.module, :resources, Map.put(resources, name, resource))
@@ -979,7 +980,8 @@ defmodule McpServer.Router do
         csp: nil,
         permissions: nil,
         app_domain: nil,
-        prefers_border: nil
+        prefers_border: nil,
+        icons: []
       },
       quoted,
       ctx
@@ -1031,6 +1033,11 @@ defmodule McpServer.Router do
 
   defp do_extract_resource_statements(statements, {:prefers_border, _, [val]}, _ctx) do
     Map.put(statements, :prefers_border, val)
+  end
+
+  defp do_extract_resource_statements(statements, {:icon, _, args}, _ctx) do
+    icon = parse_icon_args(args)
+    Map.update!(statements, :icons, &(&1 ++ [icon]))
   end
 
   defp do_extract_resource_statements(_statements, other, %{caller: caller}) do
@@ -1145,7 +1152,7 @@ defmodule McpServer.Router do
   end
 
   defp extract_prompt_statements(quoted, ctx) do
-    do_extract_prompt_statements(%{arguments: %{}}, quoted, ctx)
+    do_extract_prompt_statements(%{arguments: %{}, icons: []}, quoted, ctx)
   end
 
   defp do_extract_prompt_statements(statements, {:__block__, _, content}, ctx) do
@@ -1199,6 +1206,11 @@ defmodule McpServer.Router do
     |> Map.put(:complete_function, function)
   end
 
+  defp do_extract_prompt_statements(statements, {:icon, _, args}, _ctx) do
+    icon = parse_icon_args(args)
+    Map.update!(statements, :icons, &(&1 ++ [icon]))
+  end
+
   defp do_extract_prompt_statements(_statements, other, %{caller: caller}) do
     raise %SyntaxError{
       description: "Unexpected statement in prompt definition: #{Macro.to_string(other)}",
@@ -1233,8 +1245,26 @@ defmodule McpServer.Router do
     end
   end
 
+  defp parse_icon_args(args) do
+    case args do
+      [src] ->
+        %{src: src, mime_type: nil, sizes: []}
+
+      [src, opts] when is_list(opts) ->
+        %{
+          src: src,
+          mime_type: Keyword.get(opts, :mime_type),
+          sizes: Keyword.get(opts, :sizes, [])
+        }
+
+      _ ->
+        raise ArgumentError,
+              "icon expects icon(src) or icon(src, mime_type: \"...\", sizes: [\"...\"])"
+    end
+  end
+
   defp extract_tools_statements(quoted, ctx) do
-    do_extract_tools_statements(%{input_fields: %{}, output_fields: %{}}, quoted, ctx)
+    do_extract_tools_statements(%{input_fields: %{}, output_fields: %{}, icons: []}, quoted, ctx)
   end
 
   defp do_extract_tools_statements(statements, {:__block__, _, content}, ctx) do
@@ -1305,6 +1335,11 @@ defmodule McpServer.Router do
       })
 
     Map.put(statements, :output_fields, new_output_fields)
+  end
+
+  defp do_extract_tools_statements(statements, {:icon, _, args}, _ctx) do
+    icon = parse_icon_args(args)
+    Map.update!(statements, :icons, &(&1 ++ [icon]))
   end
 
   defp do_extract_tools_statements(_statements, other, %{caller: caller}) do
@@ -1880,6 +1915,7 @@ defmodule McpServer.Router do
   @valid_content_types [
     McpServer.Tool.Content.Text,
     McpServer.Tool.Content.Image,
+    McpServer.Tool.Content.Audio,
     McpServer.Tool.Content.Resource
   ]
 
@@ -1891,7 +1927,7 @@ defmodule McpServer.Router do
       not is_list(result) ->
         Logger.warning(
           "Tool '#{tool_name}' returned #{inspect_type(result)} instead of a list of content items " <>
-            "(McpServer.Tool.Content.Text, McpServer.Tool.Content.Image, McpServer.Tool.Content.Resource). " <>
+            "(McpServer.Tool.Content.Text, McpServer.Tool.Content.Image, McpServer.Tool.Content.Audio, McpServer.Tool.Content.Resource). " <>
             "Use McpServer.Tool.Content helpers to build tool results."
         )
 
@@ -2000,6 +2036,17 @@ defmodule McpServer.Router do
               McpServer.Tool.Meta.new(ui: ui)
           end
 
+        # Build icons
+        icons =
+          unquote(Macro.escape(tool.statements.icons))
+          |> Enum.map(fn icon_map ->
+            McpServer.Icon.new(
+              src: icon_map.src,
+              mime_type: icon_map.mime_type,
+              sizes: icon_map.sizes
+            )
+          end)
+
         # Create Tool struct
         McpServer.Tool.new(
           name: unquote(name),
@@ -2007,7 +2054,8 @@ defmodule McpServer.Router do
           input_schema: input_schema,
           annotations: annotations,
           callback: {unquote(tool.controller), unquote(tool.function)},
-          _meta: _meta
+          _meta: _meta,
+          icons: icons
         )
       end
     end)
@@ -2036,11 +2084,22 @@ defmodule McpServer.Router do
       quote do
         arguments = unquote(prompt_arguments(prompt.statements.arguments))
 
+        icons =
+          unquote(Macro.escape(prompt.statements.icons))
+          |> Enum.map(fn icon_map ->
+            McpServer.Icon.new(
+              src: icon_map.src,
+              mime_type: icon_map.mime_type,
+              sizes: icon_map.sizes
+            )
+          end)
+
         # Create Prompt struct
         McpServer.Prompt.new(
           name: unquote(name),
           description: unquote(prompt.description),
-          arguments: arguments
+          arguments: arguments,
+          icons: icons
         )
       end
     end)
@@ -2054,6 +2113,16 @@ defmodule McpServer.Router do
     end)
     |> Enum.map(fn {name, resource} ->
       quote do
+        icons =
+          unquote(Macro.escape(resource.icons))
+          |> Enum.map(fn icon_map ->
+            McpServer.Icon.new(
+              src: icon_map.src,
+              mime_type: icon_map.mime_type,
+              sizes: icon_map.sizes
+            )
+          end)
+
         # Create Resource struct for static resources
         McpServer.Resource.new(
           name: unquote(name),
@@ -2061,7 +2130,8 @@ defmodule McpServer.Router do
           description: unquote(resource.description),
           title: unquote(resource.title),
           mime_type: unquote(resource.mimeType),
-          _meta: unquote(Macro.escape(resource._meta))
+          _meta: unquote(Macro.escape(resource._meta)),
+          icons: icons
         )
       end
     end)
@@ -2075,6 +2145,16 @@ defmodule McpServer.Router do
     end)
     |> Enum.map(fn {name, resource} ->
       quote do
+        icons =
+          unquote(Macro.escape(resource.icons))
+          |> Enum.map(fn icon_map ->
+            McpServer.Icon.new(
+              src: icon_map.src,
+              mime_type: icon_map.mime_type,
+              sizes: icon_map.sizes
+            )
+          end)
+
         # Create ResourceTemplate struct for templated resources
         McpServer.ResourceTemplate.new(
           name: unquote(name),
@@ -2082,7 +2162,8 @@ defmodule McpServer.Router do
           description: unquote(resource.description),
           title: unquote(resource.title),
           mime_type: unquote(resource.mimeType),
-          _meta: unquote(Macro.escape(resource._meta))
+          _meta: unquote(Macro.escape(resource._meta)),
+          icons: icons
         )
       end
     end)

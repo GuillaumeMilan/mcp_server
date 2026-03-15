@@ -1472,4 +1472,213 @@ defmodule McpServer.RouterTest do
       end
     end
   end
+
+  # === Icon Metadata Tests ===
+
+  defmodule IconTestController do
+    alias McpServer.Tool.Content, as: ToolContent
+
+    def icon_tool(_conn, _args) do
+      {:ok, [ToolContent.text("icon tool result")]}
+    end
+
+    def get_icon_prompt(_conn, _args) do
+      [
+        McpServer.Prompt.Message.new(
+          role: "user",
+          content: McpServer.Prompt.MessageContent.new(type: "text", text: "Hello")
+        )
+      ]
+    end
+
+    def complete_icon_prompt(_conn, _arg, _prefix), do: completion([], [])
+
+    def read_icon_resource(_conn, _opts) do
+      McpServer.Resource.ReadResult.new(
+        contents: [
+          content("icon-res", "https://example.com/icon-resource",
+            mimeType: "text/plain",
+            text: "icon resource content"
+          )
+        ]
+      )
+    end
+  end
+
+  defmodule IconTestRouter do
+    use McpServer.Router
+
+    tool "icon_tool", "A tool with icons", IconTestController, :icon_tool do
+      icon("https://example.com/icon-48.png", mime_type: "image/png", sizes: ["48x48"])
+      icon("https://example.com/icon-96.png", mime_type: "image/png", sizes: ["96x96"])
+      input_field("input", "Some input", :string, required: false)
+    end
+
+    tool "no_icon_tool", "A tool without icons", IconTestController, :icon_tool do
+      input_field("input", "Some input", :string, required: false)
+    end
+
+    prompt "icon_prompt", "A prompt with an icon" do
+      icon("https://example.com/prompt-icon.svg", mime_type: "image/svg+xml")
+      argument("name", "A name")
+      get(IconTestController, :get_icon_prompt)
+      complete(IconTestController, :complete_icon_prompt)
+    end
+
+    resource "icon_resource", "https://example.com/icon-resource" do
+      description("A resource with an icon")
+      icon("https://example.com/resource-icon.png", mime_type: "image/png", sizes: ["32x32"])
+      read(IconTestController, :read_icon_resource)
+    end
+  end
+
+  describe "icon metadata in tools" do
+    test "tool with icons includes icons in list_tools" do
+      conn = mock_conn()
+      assert {:ok, tools} = IconTestRouter.list_tools(conn)
+      icon_tool = Enum.find(tools, &(&1.name == "icon_tool"))
+
+      assert length(icon_tool.icons) == 2
+
+      first_icon = Enum.at(icon_tool.icons, 0)
+      assert %McpServer.Icon{} = first_icon
+      assert first_icon.src == "https://example.com/icon-48.png"
+      assert first_icon.mime_type == "image/png"
+      assert first_icon.sizes == ["48x48"]
+
+      second_icon = Enum.at(icon_tool.icons, 1)
+      assert second_icon.src == "https://example.com/icon-96.png"
+      assert second_icon.sizes == ["96x96"]
+    end
+
+    test "tool without icons has empty icons list" do
+      conn = mock_conn()
+      assert {:ok, tools} = IconTestRouter.list_tools(conn)
+      no_icon_tool = Enum.find(tools, &(&1.name == "no_icon_tool"))
+
+      assert no_icon_tool.icons == []
+    end
+
+    test "tool icons serialize correctly in JSON" do
+      conn = mock_conn()
+      assert {:ok, tools} = IconTestRouter.list_tools(conn)
+      icon_tool = Enum.find(tools, &(&1.name == "icon_tool"))
+
+      json = Jason.encode!(icon_tool)
+      decoded = Jason.decode!(json)
+
+      assert length(decoded["icons"]) == 2
+      first = Enum.at(decoded["icons"], 0)
+      assert first["src"] == "https://example.com/icon-48.png"
+      assert first["mimeType"] == "image/png"
+      assert first["sizes"] == ["48x48"]
+    end
+
+    test "tool without icons omits icons key from JSON" do
+      conn = mock_conn()
+      assert {:ok, tools} = IconTestRouter.list_tools(conn)
+      no_icon_tool = Enum.find(tools, &(&1.name == "no_icon_tool"))
+
+      json = Jason.encode!(no_icon_tool)
+      decoded = Jason.decode!(json)
+
+      refute Map.has_key?(decoded, "icons")
+    end
+  end
+
+  describe "icon metadata in prompts" do
+    test "prompt with icon includes icons in prompts_list" do
+      conn = mock_conn()
+      assert {:ok, prompts} = IconTestRouter.prompts_list(conn)
+      icon_prompt = Enum.find(prompts, &(&1.name == "icon_prompt"))
+
+      assert length(icon_prompt.icons) == 1
+      icon = Enum.at(icon_prompt.icons, 0)
+      assert icon.src == "https://example.com/prompt-icon.svg"
+      assert icon.mime_type == "image/svg+xml"
+      assert icon.sizes == []
+    end
+
+    test "prompt icons serialize correctly in JSON" do
+      conn = mock_conn()
+      assert {:ok, prompts} = IconTestRouter.prompts_list(conn)
+      icon_prompt = Enum.find(prompts, &(&1.name == "icon_prompt"))
+
+      json = Jason.encode!(icon_prompt)
+      decoded = Jason.decode!(json)
+
+      assert length(decoded["icons"]) == 1
+      icon = Enum.at(decoded["icons"], 0)
+      assert icon["src"] == "https://example.com/prompt-icon.svg"
+      assert icon["mimeType"] == "image/svg+xml"
+      refute Map.has_key?(icon, "sizes")
+    end
+  end
+
+  describe "icon metadata in resources" do
+    test "resource with icon includes icons in list_resources" do
+      conn = mock_conn()
+      assert {:ok, resources} = IconTestRouter.list_resources(conn)
+      icon_resource = Enum.find(resources, &(&1.name == "icon_resource"))
+
+      assert length(icon_resource.icons) == 1
+      icon = Enum.at(icon_resource.icons, 0)
+      assert icon.src == "https://example.com/resource-icon.png"
+      assert icon.mime_type == "image/png"
+      assert icon.sizes == ["32x32"]
+    end
+
+    test "resource icons serialize correctly in JSON" do
+      conn = mock_conn()
+      assert {:ok, resources} = IconTestRouter.list_resources(conn)
+      icon_resource = Enum.find(resources, &(&1.name == "icon_resource"))
+
+      json = Jason.encode!(icon_resource)
+      decoded = Jason.decode!(json)
+
+      assert length(decoded["icons"]) == 1
+      icon = Enum.at(decoded["icons"], 0)
+      assert icon["src"] == "https://example.com/resource-icon.png"
+      assert icon["mimeType"] == "image/png"
+      assert icon["sizes"] == ["32x32"]
+    end
+  end
+
+  describe "existing tools without icons" do
+    test "existing tools have empty icons and no icons in JSON" do
+      conn = mock_conn()
+      assert {:ok, tools} = TestRouter.list_tools(conn)
+
+      Enum.each(tools, fn tool ->
+        assert tool.icons == []
+        json = Jason.encode!(tool)
+        decoded = Jason.decode!(json)
+        refute Map.has_key?(decoded, "icons")
+      end)
+    end
+
+    test "existing prompts have empty icons and no icons in JSON" do
+      conn = mock_conn()
+      assert {:ok, prompts} = TestRouter.prompts_list(conn)
+
+      Enum.each(prompts, fn prompt ->
+        assert prompt.icons == []
+        json = Jason.encode!(prompt)
+        decoded = Jason.decode!(json)
+        refute Map.has_key?(decoded, "icons")
+      end)
+    end
+
+    test "existing resources have empty icons and no icons in JSON" do
+      conn = mock_conn()
+      assert {:ok, resources} = TestRouter.list_resources(conn)
+
+      Enum.each(resources, fn resource ->
+        assert resource.icons == []
+        json = Jason.encode!(resource)
+        decoded = Jason.decode!(json)
+        refute Map.has_key?(decoded, "icons")
+      end)
+    end
+  end
 end
