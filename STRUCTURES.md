@@ -27,7 +27,8 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
   name: String.t(),           # Unique tool identifier
   description: String.t(),    # Human-readable description
   inputSchema: map(),         # JSON Schema for input validation
-  annotations: map()          # Optional metadata (hints, title)
+  annotations: map(),         # Optional metadata (hints, title)
+  icons: [McpServer.Icon.t()] # Optional icons (omitted from JSON when empty)
 }
 ```
 
@@ -150,6 +151,32 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 
 **Note**: `structuredContent` and `_meta` are omitted from the JSON response when `nil`.
 
+### 1.6 Audio Content Structure — `McpServer.Tool.Content.Audio`
+
+**Purpose**: Audio content in tool results (base64-encoded on serialization)
+**Used by**: `call_tool/3` return value content list
+**Module**: `McpServer.Tool.Content.Audio`
+
+```elixir
+%McpServer.Tool.Content.Audio{
+  data: binary(),            # Raw binary audio data (required)
+  mime_type: String.t()      # MIME type, e.g., "audio/wav", "audio/mpeg" (required)
+}
+```
+
+**Helpers**:
+- `McpServer.Tool.Content.audio(data, mime_type)` — from raw binary
+- `McpServer.Tool.Content.audio_base64(base64_string, mime_type)` — from pre-encoded base64
+
+**JSON Example**:
+```json
+{
+  "type": "audio",
+  "data": "AQIDBA==",
+  "mimeType": "audio/wav"
+}
+```
+
 ---
 
 ## 2. Prompt-Related Structures
@@ -164,7 +191,8 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
 %McpServer.Prompt{
   name: String.t(),              # Unique prompt identifier
   description: String.t(),       # Human-readable description
-  arguments: list(map())         # List of argument definitions
+  arguments: list(map()),        # List of argument definitions
+  icons: [McpServer.Icon.t()]    # Optional icons (omitted from JSON when empty)
 }
 ```
 
@@ -277,7 +305,8 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
   uri: String.t(),               # Static URI
   description: String.t() | nil, # Human-readable description
   mimeType: String.t() | nil,    # MIME type (e.g., "application/json")
-  title: String.t() | nil        # Display title
+  title: String.t() | nil,       # Display title
+  icons: [McpServer.Icon.t()]    # Optional icons (omitted from JSON when empty)
 }
 ```
 
@@ -304,7 +333,8 @@ All structures must be JSON-encodable (using `Jason` library) and follow the MCP
   uriTemplate: String.t(),       # URI with {variable} placeholders
   description: String.t() | nil, # Human-readable description
   mimeType: String.t() | nil,    # MIME type
-  title: String.t() | nil        # Display title
+  title: String.t() | nil,       # Display title
+  icons: [McpServer.Icon.t()]    # Optional icons (omitted from JSON when empty)
 }
 ```
 
@@ -515,7 +545,32 @@ For usage details, see [Building MCP Apps](MCP_APPS.md).
 }
 ```
 
-### 5.2 Error Response Structure
+### 5.2 Icon Structure — `McpServer.Icon`
+
+**Purpose**: Visual identifier for tools, prompts, and resources
+**Used by**: `icons` field on `Tool`, `Prompt`, `Resource`, `ResourceTemplate`
+**Module**: `McpServer.Icon`
+
+```elixir
+%McpServer.Icon{
+  src: String.t(),               # URL of the icon image (required)
+  mime_type: String.t() | nil,   # MIME type (e.g., "image/png", "image/svg+xml")
+  sizes: [String.t()]            # Size strings (e.g., ["48x48", "96x96"]), default: []
+}
+```
+
+**JSON Example**:
+```json
+{
+  "src": "https://example.com/icon.png",
+  "mimeType": "image/png",
+  "sizes": ["48x48", "96x96"]
+}
+```
+
+**Note**: `mimeType` is omitted when `nil`, `sizes` is omitted when empty.
+
+### 5.3 Error Response Structure
 
 **Purpose**: Standard error format for all callbacks  
 **Used by**: All callbacks can return error tuples
@@ -622,8 +677,10 @@ Recommended module structure:
 
 ```
 lib/mcp_server/
+├── icon.ex               # Icon (visual identifiers for tools/prompts/resources)
 ├── tool.ex               # Tool, Tool.Annotations
 ├── tool/
+│   ├── content.ex        # Tool.Content (Text, Image, Audio, Resource helpers)
 │   ├── call_result.ex    # Tool.CallResult (MCP Apps)
 │   └── meta.ex           # Tool.Meta
 │   └── meta/
@@ -780,6 +837,8 @@ To implement these structures in the existing codebase:
 | `Resource.Meta.UI` | `McpServer.Resource.Meta.UI` | Resource UI metadata (CSP, permissions) | Nested in Meta (resources) |
 | `Resource.Meta.UI.CSP` | `McpServer.Resource.Meta.UI.CSP` | CSP domain configuration | Nested in Resource.Meta.UI |
 | `Resource.Meta.UI.Permissions` | `McpServer.Resource.Meta.UI.Permissions` | Sandbox permissions | Nested in Resource.Meta.UI |
+| `Icon` | `McpServer.Icon` | Visual identifier for tools/prompts/resources | `icons` field on Tool, Prompt, Resource, ResourceTemplate |
+| `Tool.Content.Audio` | `McpServer.Tool.Content.Audio` | Audio content in tool results | `call_tool/3` content list |
 
 ---
 

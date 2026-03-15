@@ -12,6 +12,7 @@ McpServer is an Elixir library that builds a DSL for defining Model Context Prot
 - **Validated Tools**: Define tools with automatic input validation and output schemas
 - **Interactive Prompts**: Create prompts with argument completion support
 - **Resource Management**: Define and serve resources with URI templates
+- **Icon Metadata**: Attach icons to tools, prompts, and resources via the `icon` DSL macro
 - **Automatic JSON Encoding**: All structs automatically encode to proper MCP JSON format
 
 ## Installation and setup
@@ -101,12 +102,14 @@ defmodule MyApp.Router do
   tool "echo", "Echoes back the input", MyApp.MyController, :echo,
     title: "Echo",
     hints: [:read_only, :non_destructive, :idempotent, :closed_world] do
+    icon "https://example.com/echo-icon.svg", mime_type: "image/svg+xml", sizes: ["48x48"]
     input_field("message", "The message to echo", :string, required: true)
     output_field("response", "The echoed message", :string)
   end
 
   # Define prompts
   prompt "greet", "A friendly greeting prompt that welcomes users" do
+    icon "https://example.com/greet-icon.png"
     argument("user_name", "The name of the user to greet", required: true)
     get MyApp.MyController, :get_greet_prompt
     complete MyApp.MyController, :complete_greet_prompt
@@ -114,6 +117,7 @@ defmodule MyApp.Router do
 
   # Define resources
   resource "user", "https://example.com/users/{id}" do
+    icon "https://example.com/user-icon.png", mime_type: "image/png"
     description "User resource"
     mimeType "application/json"
     title "User title"
@@ -176,6 +180,15 @@ def generate_chart(_conn, %{"data" => data}) do
   {:ok, CallResult.new(content: [
     ToolContent.text("Chart generated successfully"),
     ToolContent.image(chart_image, "image/png")
+  ])}
+end
+
+# Return audio content
+def synthesize_speech(_conn, %{"text" => text}) do
+  audio_data = text_to_speech(text)
+  {:ok, CallResult.new(content: [
+    ToolContent.text("Speech synthesized"),
+    ToolContent.audio(audio_data, "audio/wav")
   ])}
 end
 

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-15
+
+### Icon Metadata & Audio Content Type
+
+Implements two MCP specification additions:
+- **Icon metadata** ([spec 2025-11-25](https://spec.modelcontextprotocol.io/specification/2025-11-25/server/utilities/icons/)) — visual identifiers for tools, prompts, and resources
+- **Audio content type** ([spec 2025-03-26](https://spec.modelcontextprotocol.io/specification/2025-03-26/server/utilities/tool-content/)) — audio data in tool results alongside text and image
+
+### Added
+
+- **`McpServer.Icon`** struct with `src` (required), `mime_type`, and `sizes` fields; includes validation and `Jason.Encoder` (omits `mimeType`/`sizes` when nil/empty)
+- **`icon/1` and `icon/2` DSL macros** in tool, prompt, and resource blocks for declaring icons at compile time:
+  ```elixir
+  tool "my_tool", "Description", MyController, :my_fn do
+    icon "https://example.com/icon.png"
+    icon "https://example.com/icon.svg", mime_type: "image/svg+xml", sizes: ["48x48"]
+  end
+  ```
+- **`icons` field** on `McpServer.Tool`, `McpServer.Prompt`, `McpServer.Resource`, and `McpServer.ResourceTemplate` — serialized to JSON only when non-empty
+- **`McpServer.Tool.Content.Audio`** struct for audio content in tool results, following the same pattern as `Image` (raw binary stored internally, base64-encoded on serialization)
+- **`McpServer.Tool.Content.audio/2`** helper — creates audio content from raw binary data and MIME type
+- **`McpServer.Tool.Content.audio_base64/2`** helper — creates audio content from a pre-encoded base64 string (decodes internally for consistent serialization)
+
 ## [0.8.0] - 2026-02-01
 
 ### MCP Apps Support
@@ -366,6 +389,7 @@ See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete upgrade instructions.
 
 ## Links
 
+- [0.9.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.8.0...v0.9.0
 - [0.8.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.7.0...v0.8.0
 - [0.7.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.6.0...v0.7.0
 - [0.6.0]: https://github.com/GuillaumeMilan/mcp_server/compare/v0.5.0...v0.6.0
