@@ -171,10 +171,16 @@ defmodule McpServer.ErrorHandlingTest do
       assert error_msg =~ "Tool crashed"
     end
 
-    test "tool returning bare value is wrapped in {:ok, result}" do
+    test "tool returning a malformed (non-tuple) value is reported as an error" do
+      # A handler must return `{:ok, result}` or `{:error, reason}`. A bare value has no
+      # matching `McpServer.Tool.CallResult.handle_tool_result/2` clause, so it raises a
+      # FunctionClauseError at runtime, which the generated call_tool/3 try/rescue maps to an
+      # error. (Statically-knowable bad returns are additionally caught at compile time as an
+      # "incompatible types" warning at the consumer's `use McpServer.Router` site.)
       conn = mock_conn()
       assert {:error, error} = ErrorRouter.call_tool(conn, "tool_bare", %{})
-      assert error =~ "Tool execution failed: Invalid tool response,"
+      assert error =~ "Tool execution failed:"
+      assert error =~ "no function clause matching"
     end
 
     test "missing required tool arguments returns error" do

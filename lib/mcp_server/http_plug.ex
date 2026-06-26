@@ -258,8 +258,6 @@ defmodule McpServer.HttpPlug do
     Base.url_decode64(session_id, padding: false) != :error
   end
 
-  defp valid_session_id?(_), do: false
-
   defp validate_session_when_needed(_, %JsonRpc.Request{method: method})
        when method in ["initialize", "notifications/initialized"] do
     # No session validation needed for initialization

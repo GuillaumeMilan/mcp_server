@@ -647,12 +647,12 @@ defmodule McpServer.Router do
     define_nested_field(name, description, type, [], nil, __CALLER__)
   end
 
-  defmacro field(name, description, type, opts) when is_list(opts) do
-    define_nested_field(name, description, type, opts, nil, __CALLER__)
-  end
-
   defmacro field(name, description, type, do: block) do
     define_nested_field(name, description, type, [], block, __CALLER__)
+  end
+
+  defmacro field(name, description, type, opts) when is_list(opts) do
+    define_nested_field(name, description, type, opts, nil, __CALLER__)
   end
 
   defmacro field(name, description, type, opts, do: block) do
@@ -679,12 +679,12 @@ defmodule McpServer.Router do
     define_array_items(type, [], nil, __CALLER__)
   end
 
-  defmacro items(type, opts) when is_list(opts) do
-    define_array_items(type, opts, nil, __CALLER__)
-  end
-
   defmacro items(type, do: block) do
     define_array_items(type, [], block, __CALLER__)
+  end
+
+  defmacro items(type, opts) when is_list(opts) do
+    define_array_items(type, opts, nil, __CALLER__)
   end
 
   defmacro items(type, opts, do: block) do
@@ -1581,25 +1581,10 @@ defmodule McpServer.Router do
 
               :ok ->
                 try do
-                  case unquote(tool.controller).unquote(tool.function)(conn, args) do
-                    {:ok, %McpServer.Tool.CallResult{} = call_result} ->
-                      validated_content =
-                        McpServer.Router.validate_tool_result(
-                          call_result.content,
-                          unquote(tool.name)
-                        )
-
-                      {:ok, %McpServer.Tool.CallResult{call_result | content: validated_content}}
-
-                    {:ok, result} ->
-                      {:ok, McpServer.Router.validate_tool_result(result, unquote(tool.name))}
-
-                    {:error, _} = error ->
-                      error
-
-                    badly_formatted ->
-                      raise "Invalid tool response, expected `{:ok, result}` or `{:error, reason}` tuple.\nReceived: #{inspect(badly_formatted)}"
-                  end
+                  McpServer.Tool.CallResult.handle_tool_result(
+                    unquote(tool.controller).unquote(tool.function)(conn, args),
+                    unquote(tool.name)
+                  )
                 rescue
                   e -> {:error, "Tool execution failed: #{Exception.message(e)}"}
                 end

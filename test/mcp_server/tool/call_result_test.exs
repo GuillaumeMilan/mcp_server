@@ -43,4 +43,39 @@ defmodule McpServer.Tool.CallResultTest do
       end
     end
   end
+
+  describe "handle_tool_result/2" do
+    test "passes a {:ok, content_list} return through (validated)" do
+      content = [Content.text("hello")]
+      assert {:ok, ^content} = CallResult.handle_tool_result({:ok, content}, "t")
+    end
+
+    test "validates and rewraps a {:ok, %CallResult{}} return" do
+      content = [Content.text("hello")]
+      call_result = %CallResult{content: content, structured_content: %{"a" => 1}}
+
+      assert {:ok, %CallResult{content: ^content, structured_content: %{"a" => 1}}} =
+               CallResult.handle_tool_result({:ok, call_result}, "t")
+    end
+
+    test "passes an {:error, reason} return through unchanged" do
+      assert {:error, "boom"} = CallResult.handle_tool_result({:error, "boom"}, "t")
+    end
+
+    # This is the load-bearing test for the compile-time type enforcement. `handle_tool_result/2`
+    # deliberately has NO catch-all clause: that is exactly what keeps its inferred parameter type
+    # restricted to `{:ok, _} | {:error, _}`, so Elixir >= 1.20 reports a malformed tool return as
+    # an "incompatible types" warning at the consumer's `use McpServer.Router` site. A catch-all
+    # would silence that enforcement — and would also stop this raising. So pinning the raise here
+    # pins the enforcement.
+    test "raises (no catch-all) on a malformed, non-{:ok | :error} return" do
+      assert_raise FunctionClauseError, fn ->
+        CallResult.handle_tool_result(:not_a_valid_return, "t")
+      end
+
+      assert_raise FunctionClauseError, fn ->
+        CallResult.handle_tool_result({:weird, 1, 2}, "t")
+      end
+    end
+  end
 end
